@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>EvalPoli — Valutazione Esami</title>
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root {
+  --pri: #1d4ed8;
+  --pri-dk: #1e3a8a;
+  --pri-lt: #3b82f6;
+  --acc: #0ea5e9;
+  --ok: #16a34a;
+  --warn: #f59e0b;
+  --err: #ef4444;
+  --bg: #f1f5f9;
+  --surface: #fff;
+  --surface2: #f8fafc;
+  --border: #cbd5e1;
+  --border-lt: #e2e8f0;
+  --txt: #0f172a;
+  --txt2: #475569;
+  --txt3: #94a3b8;
+  --r: 10px;
+  --r-sm: 6px;
+  --r-lg: 16px;
+  --sh: 0 1px 3px rgba(0,0,0,.09);
+  --sh-lg: 0 8px 24px rgba(0,0,0,.14);
+  --nav: 62px;
+  --hdr: 54px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--txt);font-size:15px;line-height:1.5;-webkit-tap-highlight-color:transparent}
+
+/* ── LOGIN ─────────────────────────────────────────────────────── */
+#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--pri-dk) 0%,var(--pri) 55%,var(--acc) 100%);padding:20px}
+.login-card{background:var(--surface);border-radius:var(--r-lg);padding:36px 28px;
+  width:100%;max-width:360px;box-shadow:var(--sh-lg);text-align:center}
+.login-logo{font-size:44px;margin-bottom:8px}
+.login-card h1{font-size:22px;font-weight:800;color:var(--pri);margin-bottom:2px}
+.login-card .sub{color:var(--txt2);font-size:13px;margin-bottom:28px}
+
+/* ── HEADER ────────────────────────────────────────────────────── */
+#hdr{position:fixed;top:0;left:0;right:0;height:var(--hdr);background:var(--pri);color:#fff;
+  display:flex;align-items:center;justify-content:space-between;padding:0 14px;
+  z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+#hdr h1{font-size:16px;font-weight:700;letter-spacing:.01em}
+#hdr-right{display:flex;gap:6px;align-items:center}
+
+/* ── BOTTOM NAV (mobile) ────────────────────────────────────────── */
+#nav{position:fixed;bottom:0;left:0;right:0;height:var(--nav);background:var(--surface);
+  border-top:1px solid var(--border-lt);display:flex;z-index:100;
+  box-shadow:0 -2px 8px rgba(0,0,0,.07)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;border:none;background:none;cursor:pointer;color:var(--txt3);
+  font-size:10px;font-weight:600;padding:6px 2px;transition:color .15s;font-family:inherit}
+.nav-btn.active{color:var(--pri)}
+.nav-btn .ic{font-size:19px}
+
+/* ── CONTENT ────────────────────────────────────────────────────── */
+#content{padding:calc(var(--hdr) + 12px) 14px calc(var(--nav) + 14px);min-height:100vh}
+.tab{display:none}.tab.active{display:block}
+
+/* ── CARDS ──────────────────────────────────────────────────────── */
+.card{background:var(--surface);border-radius:var(--r);padding:15px;margin-bottom:12px;
+  box-shadow:var(--sh);border:1px solid var(--border-lt)}
+.card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--txt2);margin-bottom:11px}
+
+/* ── FORMS ──────────────────────────────────────────────────────── */
+label{display:block;font-size:13px;font-weight:500;color:var(--txt2);margin-bottom:4px}
+input[type=text],input[type=number],input[type=password],select,textarea{
+  width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:var(--r-sm);
+  font-size:15px;font-family:inherit;color:var(--txt);background:var(--surface);
+  transition:border-color .15s;-webkit-appearance:none;appearance:none}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri-lt);
+  box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+textarea{resize:vertical;min-height:72px}
+.fg{margin-bottom:12px}
+.frow{display:flex;gap:10px;align-items:flex-end}
+.frow>*{flex:1}.frow>.f0{flex:none}
+input[type=number].w70{width:70px!important}
+
+/* ── BUTTONS ────────────────────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:10px 16px;border-radius:var(--r-sm);font-size:14px;font-weight:600;
+  cursor:pointer;border:none;transition:all .15s;font-family:inherit;white-space:nowrap}
+.btn-pri{background:var(--pri);color:#fff}.btn-pri:active{background:var(--pri-dk)}
+.btn-sec{background:var(--surface);color:var(--txt);border:1.5px solid var(--border)}
+.btn-sec:active{background:var(--bg)}
+.btn-danger{background:var(--err);color:#fff}
+.btn-ok{background:var(--ok);color:#fff}
+.btn-sm{padding:6px 11px;font-size:13px}
+.btn-xs{padding:4px 8px;font-size:12px}
+.btn-block{width:100%}
+.btn-icon{padding:7px;border-radius:var(--r-sm);background:none;border:none;
+  cursor:pointer;color:var(--txt2);font-size:15px;line-height:1}
+.btn-icon:hover{color:var(--err);background:var(--bg)}
+
+/* ── LIST ITEMS ─────────────────────────────────────────────────── */
+.li{display:flex;align-items:center;gap:8px;padding:9px 11px;
+  background:var(--surface2);border-radius:var(--r-sm);margin-bottom:5px;
+  border:1px solid var(--border-lt)}
+.li-name{flex:1;font-size:14px}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.b-blue{background:#dbeafe;color:#1d4ed8}
+.b-green{background:#dcfce7;color:#15803d}
+.b-yellow{background:#fef3c7;color:#b45309}
+.b-gray{background:#f1f5f9;color:#475569}
+
+/* ── STUDENT EVAL CARD ──────────────────────────────────────────── */
+.sec{background:var(--surface);border-radius:var(--r);margin-bottom:9px;
+  border:1px solid var(--border-lt);box-shadow:var(--sh);overflow:hidden}
+.sec-hdr{padding:11px 14px;display:flex;align-items:center;gap:10px;
+  cursor:pointer;background:var(--surface);user-select:none}
+.sec-hdr:active{background:var(--surface2)}
+.sec-name{flex:1;font-weight:600;font-size:15px}
+.sec-brief{font-size:11px;color:var(--txt2)}
+.grade-prev{font-size:21px;font-weight:800;color:var(--pri);min-width:42px;text-align:right}
+.sec-arrow{color:var(--txt3);font-size:12px;transition:transform .2s}
+.sec-body{display:none;padding:12px 14px;border-top:1px solid var(--border-lt)}
+.sec-body.open{display:block}
+
+.area-grid{display:grid;grid-template-columns:1fr 80px;gap:6px 10px;align-items:center;margin-bottom:10px}
+.area-grid label{margin:0;font-size:13px;font-weight:500;color:var(--txt)}
+.score-in{width:80px!important;text-align:center;padding:7px 6px!important;
+  font-weight:700;font-size:15px}
+.esec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--txt2);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border-lt)}
+.avg-row{display:flex;justify-content:space-between;align-items:center;
+  padding:4px 0;font-size:13px}
+.avg-lbl{color:var(--txt2)}
+.avg-val{font-weight:700;color:var(--pri);font-size:14px}
+.final-box{display:flex;justify-content:space-between;align-items:center;
+  background:var(--pri);color:#fff;padding:11px 14px;border-radius:var(--r-sm);margin-top:10px}
+.final-box .label{font-size:14px;font-weight:600}
+.final-box .val{font-size:26px;font-weight:800}
+
+/* ── COMMENTS SECTION ───────────────────────────────────────────── */
+.comments-list{margin-top:10px}
+.comment-item{background:var(--surface2);border:1px solid var(--border-lt);
+  border-radius:var(--r-sm);padding:9px 11px;margin-bottom:6px;font-size:13px}
+.comment-who{font-weight:600;color:var(--txt2);font-size:11px;margin-bottom:3px}
+
+/* ── RESULTS TABLE ──────────────────────────────────────────────── */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--r);
+  border:1px solid var(--border-lt)}
+table{width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);min-width:480px}
+th{background:var(--bg);padding:9px 11px;text-align:left;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;color:var(--txt2);
+  border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:9px 11px;border-bottom:1px solid var(--border-lt);color:var(--txt)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+.td-grade{font-weight:700;color:var(--pri)}
+.td-final{font-weight:800;font-size:15px;color:var(--pri-dk)}
+
+/* ── MODALS ─────────────────────────────────────────────────────── */
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);
+  z-index:200;align-items:flex-end;justify-content:center}
+.mo.open{display:flex}
+.mo-inner{background:var(--surface);border-radius:var(--r-lg) var(--r-lg) 0 0;
+  padding:22px 18px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto}
+@media(min-width:600px){.mo{align-items:center}.mo-inner{border-radius:var(--r-lg);max-height:90vh}}
+.mo-title{font-size:18px;font-weight:700;margin-bottom:14px}
+.mo-actions{display:flex;gap:10px;margin-top:18px}
+
+/* ── ALERTS ─────────────────────────────────────────────────────── */
+.alert{padding:9px 13px;border-radius:var(--r-sm);font-size:13px;margin-bottom:10px}
+.alert-err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.alert-ok{background:#f0fdf4;color:#14532d;border:1px solid #bbf7d0}
+.alert-info{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe}
+
+/* ── MISC ───────────────────────────────────────────────────────── */
+.hidden{display:none!important}
+.flex{display:flex}.flex-b{display:flex;justify-content:space-between;align-items:center}
+.gap6{gap:6px}.gap8{gap:8px}.gap10{gap:10px}
+.mb8{margin-bottom:8px}.mb10{margin-bottom:10px}.mb12{margin-bottom:12px}.mt10{margin-top:10px}.mt12{margin-top:12px}
+.txt-sm{font-size:13px}.txt-muted{color:var(--txt3)}.txt-s2{color:var(--txt2)}
+.fw6{font-weight:600}.fw7{font-weight:700}
+.sec-hdr-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sec-hdr-title{font-size:16px;font-weight:700}
+.divider{height:1px;background:var(--border-lt);margin:10px 0}
+.pb{height:4px;background:var(--border-lt);border-radius:2px;overflow:hidden;margin-top:4px}
+.pb-fill{height:100%;background:var(--pri);border-radius:2px;transition:width .3s}
+.tag{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;
+  font-size:12px;font-weight:600;background:var(--bg);color:var(--txt2);border:1px solid var(--border)}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;
+  display:inline-block;flex-shrink:0}
+.sync-dot.saving{background:var(--warn)}
+.sync-dot.err{background:var(--err)}
+
+/* ── DESKTOP LAYOUT ─────────────────────────────────────────────── */
+@media(min-width:780px){
+  #nav{top:var(--hdr);bottom:auto;right:auto;width:190px;
+    height:calc(100vh - var(--hdr));flex-direction:column;border-top:none;
+    border-right:1px solid var(--border-lt);box-shadow:none;padding:8px 0}
+  .nav-btn{flex-direction:row;justify-content:flex-start;gap:10px;
+    padding:11px 16px;font-size:14px;border-radius:var(--r-sm);margin:1px 8px;width:calc(100% - 16px)}
+  .nav-btn .ic{font-size:17px}
+  #content{padding-left:204px;padding-bottom:20px;max-width:1100px}
+}
+
+/* Checkbox style */
+.cb-row{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-weight:normal;font-size:14px}
+.cb-row input[type=checkbox]{width:17px;height:17px;flex-shrink:0;cursor:pointer}
+.radio-card{display:flex;gap:10px;align-items:flex-start;padding:11px;
+  border:2px solid var(--border);border-radius:var(--r-sm);cursor:pointer;margin-bottom:8px}
+.radio-card input[type=radio]{margin-top:2px;flex-shrink:0}
+.radio-card .rc-title{font-weight:600;font-size:14px}
+.radio-card .rc-sub{font-size:12px;color:var(--txt2)}
+
+/* Spinner */
+.spin{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.4);
+  border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ LOGIN ══════════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">🎓</div>
+    <h1>EvalPoli</h1>
+    <p class="sub">Sistema di valutazione esami</p>
+
+    <div id="frm-login">
+      <div class="fg"><label>Password</label>
+        <input type="password" id="inp-pw" placeholder="Inserisci la password" autocomplete="current-password">
+      </div>
+      <div id="login-err" class="alert alert-err hidden">Password errata</div>
+      <button class="btn btn-pri btn-block" id="btn-login">Accedi</button>
+    </div>
+
+    <div id="frm-setup" class="hidden">
+      <div class="alert alert-info mb12">Prima configurazione: imposta una password per proteggere i tuoi dati.</div>
+      <div class="fg"><label>Nuova password</label>
+        <input type="password" id="inp-pw1" placeholder="Minimo 4 caratteri">
+      </div>
+      <div class="fg"><label>Conferma</label>
+        <input type="password" id="inp-pw2" placeholder="Ripeti la password">
+      </div>
+      <div id="setup-err" class="alert alert-err hidden"></div>
+      <button class="btn btn-pri btn-block" id="btn-setup">Imposta e accedi</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ APP ══════════════════ -->
+<div id="app" class="hidden">
+
+  <div id="hdr">
+    <h1 id="hdr-title">EvalPoli</h1>
+    <div id="hdr-right">
+      <span class="sync-dot" id="sync-dot" title="Sincronizzazione"></span>
+      <button class="btn-icon" style="color:#fff" onclick="openModal('mo-pw')" title="Cambia password">🔑</button>
+      <button class="btn-icon" style="color:#fff" onclick="doLogout()" title="Esci">🚪</button>
+    </div>
+  </div>
+
+  <nav id="nav">
+    <button class="nav-btn active" id="nb-setup" onclick="switchTab('setup')">
+      <span class="ic">⚙️</span><span>Setup</span></button>
+    <button class="nav-btn" id="nb-sessions" onclick="switchTab('sessions')">
+      <span class="ic">📋</span><span>Sessioni</span></button>
+    <button class="nav-btn" id="nb-evaluate" onclick="switchTab('evaluate')">
+      <span class="ic">✏️</span><span>Valuta</span></button>
+    <button class="nav-btn" id="nb-results" onclick="switchTab('results')">
+      <span class="ic">📊</span><span>Risultati</span></button>
+  </nav>
+
+  <div id="content">
+
+    <!-- ── SETUP TAB ───────────────────────────────────────────── -->
+    <div id="tab-setup" class="tab active">
+
+      <div class="card">
+        <div class="card-title">Corso</div>
+        <div class="fg">
+          <label>Nome del corso</label>
+          <input type="text" id="inp-course" placeholder="Es. Progettazione di Sistemi Informativi"
+            onchange="apiPatchConfig({courseName:this.value})">
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Importa partecipanti (.xlsx)</div>
+        <p class="txt-sm txt-s2 mb10">Carica un file Excel con le colonne degli studenti, professori, assistenti e rappresentanti. Le colonne vengono riconosciute automaticamente.</p>
+        <input type="file" id="inp-xlsx" accept=".xlsx,.xls" class="hidden" onchange="handleXlsx(event)">
+        <button class="btn btn-sec btn-block" onclick="$('inp-xlsx').click()">📂 Carica file Excel</button>
+        <div id="xlsx-status" class="mt10 hidden"></div>
+      </div>
+
+      <div id="col-mapper" class="card hidden">
+        <div class="card-title">Abbina colonne Excel</div>
+        <div id="col-mapper-form"></div>
+        <button class="btn btn-pri btn-block mt10" onclick="applyMapping()">Importa dati</button>
+      </div>
+
+      <!-- Students -->
+      <div class="card">
+        <div class="sec-hdr-top">
+          <div class="sec-hdr-title">🎓 Studenti</div>
+          <button class="btn btn-sm btn-sec" onclick="openAddPerson('student')">+ Aggiungi</button>
+        </div>
+        <div id="lst-students"><p class="txt-sm txt-muted">Nessuno studente aggiunto</p></div>
+      </div>
+
+      <!-- Professors -->
+      <div class="card">
+        <div class="sec-hdr-top">
+          <div class="sec-hdr-title">👨‍🏫 Professori</div>
+          <button class="btn btn-sm btn-sec" onclick="openAddPerson('professor')">+ Aggiungi</button>
+        </div>
+        <div class="frow mb10">
+          <div><label>Peso voto professori</label>
+            <input type="number" class="w70" id="w-prof" value="3" min="0" max="10" step="0.5"
+              onchange="saveWeights()"></div>
+        </div>
+        <div id="lst-professors"><p class="txt-sm txt-muted">Nessun professore aggiunto</p></div>
+      </div>
+
+      <!-- Assistants -->
+      <div class="card">
+        <div class="sec-hdr-top">
+          <div class="sec-hdr-title">🧑‍💻 Assistenti</div>
+          <button class="btn btn-sm btn-sec" onclick="openAddPerson('assistant')">+ Aggiungi</button>
+        </div>
+        <div class="frow mb10">
+          <div><label>Peso voto assistenti</label>
+            <input type="number" class="w70" id="w-asst" value="2" min="0" max="10" step="0.5"
+              onchange="saveWeights()"></div>
+        </div>
+        <div id="lst-assistants"><p class="txt-sm txt-muted">Nessun assistente aggiunto</p></div>
+      </div>
+
+      <!-- Company Reps -->
+      <div class="card">
+        <div class="sec-hdr-top">
+          <div class="sec-hdr-title">🏢 Rappresentanti Aziendali</div>
+          <button class="btn btn-sm btn-sec" onclick="openAddPerson('companyRep')">+ Aggiungi</button>
+        </div>
+        <div class="frow mb10">
+          <div><label>Peso voto rappresentanti</label>
+            <input type="number" class="w70" id="w-comp" value="1" min="0" max="10" step="0.5"
+              onchange="saveWeights()"></div>
+        </div>
+        <div id="lst-company"><p class="txt-sm txt-muted">Nessun rappresentante aggiunto</p></div>
+      </div>
+
+      <!-- Areas -->
+      <div class="card">
+        <div class="sec-hdr-top">
+          <div class="sec-hdr-title">Aree di valutazione</div>
+          <button class="btn btn-sm btn-sec" onclick="addArea()">+ Aggiungi</button>
+        </div>
+        <div id="lst-areas"></div>
+      </div>
+
+      <!-- Scale -->
+      <div class="card">
+        <div class="card-title">Scala di valutazione</div>
+        <div class="frow">
+          <div><label>Voto minimo</label>
+            <input type="number" class="w70" id="inp-smin" value="0" min="0" onchange="saveScale()"></div>
+          <div><label>Voto massimo</label>
+            <input type="number" class="w70" id="inp-smax" value="30" min="1" onchange="saveScale()"></div>
+        </div>
+      </div>
+
+      <!-- Data backup -->
+      <div class="card">
+        <div class="card-title">Backup dati</div>
+        <div class="flex gap8">
+          <button class="btn btn-sec btn-sm" onclick="exportBackup()">📥 Esporta JSON</button>
+          <button class="btn btn-sec btn-sm" onclick="$('inp-import').click()">📤 Importa JSON</button>
+          <button class="btn btn-danger btn-sm" onclick="resetData()">🗑 Reset</button>
+        </div>
+        <input type="file" id="inp-import" accept=".json" class="hidden" onchange="importBackup(event)">
+      </div>
+    </div>
+
+    <!-- ── SESSIONS TAB ─────────────────────────────────────────── -->
+    <div id="tab-sessions" class="tab">
+      <div class="card">
+        <div class="sec-hdr-top">
+          <div class="sec-hdr-title">Sessioni parallele</div>
+          <button class="btn btn-sm btn-pri" onclick="openAddSession()">+ Nuova</button>
+        </div>
+        <p class="txt-sm txt-s2 mb12">Crea commissioni parallele. Se non hai sessioni parallele, puoi ignorare questa sezione e tutti gli studenti saranno visibili a tutti i valutatori.</p>
+        <div id="lst-sessions"><p class="txt-sm txt-muted">Nessuna sessione creata.</p></div>
+      </div>
+    </div>
+
+    <!-- ── EVALUATE TAB ─────────────────────────────────────────── -->
+    <div id="tab-evaluate" class="tab">
+      <div class="card">
+        <div class="fg">
+          <label>Sessione</label>
+          <select id="sel-sess-ev" onchange="renderEval()">
+            <option value="all">Tutti gli studenti</option>
+          </select>
+        </div>
+        <div class="fg" style="margin-bottom:0">
+          <label>Chi sta valutando?</label>
+          <select id="sel-eval" onchange="renderEval()">
+            <option value="">— Seleziona valutatore —</option>
+          </select>
+        </div>
+      </div>
+      <div id="eval-content">
+        <div class="card"><p class="txt-sm txt-muted">Seleziona un valutatore per iniziare.</p></div>
+      </div>
+    </div>
+
+    <!-- ── RESULTS TAB ──────────────────────────────────────────── -->
+    <div id="tab-results" class="tab">
+      <div class="card">
+        <div class="flex-b mb10">
+          <div class="sec-hdr-title">Risultati</div>
+          <div class="flex gap8">
+            <select id="sel-sess-res" onchange="renderResults()" style="font-size:13px">
+              <option value="all">Tutte</option>
+            </select>
+            <button class="btn btn-sec btn-sm" onclick="exportXlsx()">📥 Excel</button>
+          </div>
+        </div>
+        <div id="results-content"><p class="txt-sm txt-muted">Nessun dato.</p></div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /app -->
+
+<!-- ══════════════════ MODALS ══════════════════ -->
+
+<!-- Add person -->
+<div class="mo" id="mo-person">
+  <div class="mo-inner">
+    <div class="mo-title" id="mo-person-title">Aggiungi</div>
+    <input type="hidden" id="mo-person-type">
+    <div class="fg"><label>Nome</label>
+      <input type="text" id="mo-person-name" placeholder="Nome e Cognome">
+    </div>
+    <div id="mo-student-extra" class="hidden">
+      <div class="fg"><label>Brief / Gruppo (opzionale)</label>
+        <input type="text" id="mo-person-brief" placeholder="Es. Gruppo A / Progetto XYZ">
+      </div>
+    </div>
+    <div class="mo-actions">
+      <button class="btn btn-sec" style="flex:1" onclick="closeModal('mo-person')">Annulla</button>
+      <button class="btn btn-pri" style="flex:1" onclick="savePerson()">Aggiungi</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add / edit session -->
+<div class="mo" id="mo-session">
+  <div class="mo-inner">
+    <div class="mo-title" id="mo-sess-title">Nuova sessione</div>
+    <div class="fg"><label>Nome commissione</label>
+      <input type="text" id="mo-sess-name" placeholder="Es. Commissione A">
+    </div>
+    <div class="fg">
+      <label>Professori</label>
+      <div id="mo-sess-profs" class="txt-sm txt-muted">—</div>
+    </div>
+    <div class="fg">
+      <label>Assistenti</label>
+      <div id="mo-sess-assts" class="txt-sm txt-muted">—</div>
+    </div>
+    <div class="fg">
+      <label>Rappresentanti aziendali</label>
+      <div id="mo-sess-comps" class="txt-sm txt-muted">—</div>
+    </div>
+    <input type="hidden" id="mo-sess-id">
+    <div class="mo-actions">
+      <button class="btn btn-sec" style="flex:1" onclick="closeModal('mo-session')">Annulla</button>
+      <button class="btn btn-pri" style="flex:1" onclick="saveSession()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- Divide students -->
+<div class="mo" id="mo-divide">
+  <div class="mo-inner">
+    <div class="mo-title">Dividi studenti tra sessioni</div>
+    <p class="txt-sm txt-s2 mb12">Come vuoi distribuire gli studenti?</p>
+    <label class="radio-card">
+      <input type="radio" name="div-method" value="alternating" checked>
+      <div><div class="rc-title">Alternati</div>
+        <div class="rc-sub">1→A, 2→B, 3→A, 4→B, …</div></div>
+    </label>
+    <label class="radio-card">
+      <input type="radio" name="div-method" value="half">
+      <div><div class="rc-title">Prima metà / Seconda metà</div>
+        <div class="rc-sub">Primi 50% → Sessione A, restanti → Sessione B, …</div></div>
+    </label>
+    <div class="mo-actions">
+      <button class="btn btn-sec" style="flex:1" onclick="closeModal('mo-divide')">Annulla</button>
+      <button class="btn btn-pri" style="flex:1" onclick="doDivide()">Dividi</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change password -->
+<div class="mo" id="mo-pw">
+  <div class="mo-inner">
+    <div class="mo-title">Cambia password</div>
+    <div class="fg"><label>Nuova password</label>
+      <input type="password" id="mo-pw1" placeholder="Minimo 4 caratteri">
+    </div>
+    <div class="fg"><label>Conferma</label>
+      <input type="password" id="mo-pw2" placeholder="Ripeti la password">
+    </div>
+    <div id="mo-pw-err" class="alert alert-err hidden"></div>
+    <div class="mo-actions">
+      <button class="btn btn-sec" style="flex:1" onclick="closeModal('mo-pw')">Annulla</button>
+      <button class="btn btn-pri" style="flex:1" onclick="changePassword()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// GLOBALS & HELPERS
+// ══════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const esc = s => s == null ? '' : String(s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+let S = {}; // local state mirror
+let token = sessionStorage.getItem('ep_token') || '';
+let currentTab = 'setup';
+let xlsxData = null, xlsxHeaders = [];
+
+// ── Sync indicator ─────────────────────────────────────────
+const dot = $('sync-dot');
+function setSaving(){ dot.className='sync-dot saving'; dot.title='Salvataggio...' }
+function setSaved(){ dot.className='sync-dot'; dot.title='Sincronizzato' }
+function setSaveErr(){ dot.className='sync-dot err'; dot.title='Errore di salvataggio' }
+
+// ── API ────────────────────────────────────────────────────
+async function api(method, path, body) {
+  setSaving();
+  try {
+    const r = await fetch(path, {
+      method, headers: { 'Content-Type':'application/json', 'x-token': token },
+      body: body != null ? JSON.stringify(body) : undefined
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.status);
+    setSaved();
+    return data;
+  } catch(e) {
+    setSaveErr();
+    throw e;
+  }
+}
+
+// ── Debounce ───────────────────────────────────────────────
+function debounce(fn, ms) {
+  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+// ══════════════════════════════════════════════════════════
+// SOCKET.IO – REAL-TIME SYNC
+// ══════════════════════════════════════════════════════════
+let socket;
+function initSocket() {
+  socket = io();
+  socket.on('state', newState => {
+    const editing = document.activeElement &&
+      (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+    S = newState;
+    if (currentTab === 'evaluate' && editing) {
+      refreshGradePreviews();
+    } else {
+      applyStateToUI();
+    }
+  });
+  socket.on('connect', () => setSaved());
+  socket.on('disconnect', () => setSaveErr());
+}
+
+// ══════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════
+async function initAuth() {
+  const { hasPassword } = await fetch('/api/status').then(r => r.json());
+  if (!hasPassword) {
+    $('frm-login').classList.add('hidden');
+    $('frm-setup').classList.remove('hidden');
+    return;
+  }
+  if (token) {
+    try { await loadState(); showApp(); return; } catch(e) { token = ''; sessionStorage.removeItem('ep_token'); }
+  }
+}
+
+async function doLogin() {
+  const pw = $('inp-pw').value;
+  try {
+    const { token: t } = await api('POST','/api/login',{ password: pw });
+    token = t; sessionStorage.setItem('ep_token', t);
+    await loadState(); showApp();
+  } catch(e) {
+    $('login-err').classList.remove('hidden');
+    $('inp-pw').value = '';
+  }
+}
+
+async function doSetup() {
+  const pw1 = $('inp-pw1').value, pw2 = $('inp-pw2').value;
+  const err = $('setup-err');
+  if (pw1.length < 4) { err.textContent='Min 4 caratteri'; err.classList.remove('hidden'); return; }
+  if (pw1 !== pw2) { err.textContent='Le password non coincidono'; err.classList.remove('hidden'); return; }
+  const { token: t } = await api('POST','/api/setup',{ password: pw1 });
+  token = t; sessionStorage.setItem('ep_token', t);
+  await loadState(); showApp();
+}
+
+function doLogout() {
+  if (!confirm('Uscire? I dati sono salvati automaticamente.')) return;
+  sessionStorage.removeItem('ep_token');
+  token = '';
+  $('app').classList.add('hidden');
+  $('login-screen').classList.remove('hidden');
+  $('inp-pw').value = '';
+  $('login-err').classList.add('hidden');
+}
+
+async function changePassword() {
+  const pw1 = $('mo-pw1').value, pw2 = $('mo-pw2').value;
+  const err = $('mo-pw-err');
+  if (pw1.length < 4) { err.textContent='Min 4 caratteri'; err.classList.remove('hidden'); return; }
+  if (pw1 !== pw2) { err.textContent='Non coincidono'; err.classList.remove('hidden'); return; }
+  const { token: t } = await api('PUT','/api/password',{ password: pw1 });
+  token = t; sessionStorage.setItem('ep_token', t);
+  closeModal('mo-pw');
+  $('mo-pw1').value=''; $('mo-pw2').value=''; $('mo-pw-err').classList.add('hidden');
+  alert('Password aggiornata.');
+}
+
+async function loadState() {
+  S = await api('GET', '/api/state');
+}
+
+function showApp() {
+  $('login-screen').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  initSocket();
+  applyStateToUI();
+}
+
+// ══════════════════════════════════════════════════════════
+// STATE → UI
+// ══════════════════════════════════════════════════════════
+function applyStateToUI() {
+  const cfg = S.config || {};
+  $('inp-course').value = cfg.courseName || '';
+  $('hdr-title').textContent = cfg.courseName || 'EvalPoli';
+  $('w-prof').value = cfg.weights?.professor ?? 3;
+  $('w-asst').value = cfg.weights?.assistant ?? 2;
+  $('w-comp').value = cfg.weights?.companyRep ?? 1;
+  $('inp-smin').value = cfg.scoreMin ?? 0;
+  $('inp-smax').value = cfg.scoreMax ?? 30;
+
+  renderPersonList('students',   'lst-students',  'student');
+  renderPersonList('professors', 'lst-professors', 'professor');
+  renderPersonList('assistants', 'lst-assistants', 'assistant');
+  renderPersonList('companyReps','lst-company',   'companyRep');
+  renderAreas();
+  renderSessionsList();
+  populateSelects();
+
+  if (currentTab === 'evaluate') renderEval();
+  if (currentTab === 'results')  renderResults();
+}
+
+// ══════════════════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════════════════
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  $('tab-' + tab).classList.add('active');
+  $('nb-' + tab).classList.add('active');
+  currentTab = tab;
+  if (tab === 'evaluate') renderEval();
+  if (tab === 'results')  renderResults();
+}
+
+// ══════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════
+async function apiPatchConfig(patch) {
+  await api('PUT', '/api/config', patch);
+  if (patch.courseName !== undefined) $('hdr-title').textContent = patch.courseName || 'EvalPoli';
+}
+
+function saveWeights() {
+  apiPatchConfig({
+    weights: {
+      professor: parseFloat($('w-prof').value) || 3,
+      assistant: parseFloat($('w-asst').value) || 2,
+      companyRep: parseFloat($('w-comp').value) || 1
+    }
+  });
+}
+
+function saveScale() {
+  apiPatchConfig({ scoreMin: +$('inp-smin').value, scoreMax: +$('inp-smax').value });
+}
+
+// ══════════════════════════════════════════════════════════
+// AREAS
+// ══════════════════════════════════════════════════════════
+function renderAreas() {
+  const el = $('lst-areas');
+  const areas = S.config?.areas || [];
+  el.innerHTML = areas.map((a, i) => `
+    <div class="li">
+      <input type="text" value="${esc(a.name)}"
+        style="flex:1;border:none;background:transparent;font-size:14px;padding:0"
+        onchange="updateAreaName(${i},this.value)" placeholder="Nome area">
+      <button class="btn-icon" onclick="removeArea(${i})">🗑</button>
+    </div>
+  `).join('') || '<p class="txt-sm txt-muted">Nessuna area</p>';
+}
+
+async function addArea() {
+  const areas = [...(S.config?.areas || []), { id: 'a' + Date.now(), name: 'Nuova area' }];
+  await apiPatchConfig({ areas });
+}
+
+function updateAreaName(i, name) {
+  const areas = [...(S.config?.areas || [])];
+  areas[i] = { ...areas[i], name };
+  apiPatchConfig({ areas });
+}
+
+async function removeArea(i) {
+  const areas = S.config?.areas || [];
+  if (areas.length <= 1) { alert('Almeno un\'area è richiesta.'); return; }
+  const newAreas = areas.filter((_, j) => j !== i);
+  await apiPatchConfig({ areas: newAreas });
+}
+
+// ══════════════════════════════════════════════════════════
+// PERSONS
+// ══════════════════════════════════════════════════════════
+const personKeys = {
+  student:    { key: 'students',   label: 'Studente' },
+  professor:  { key: 'professors', label: 'Professore' },
+  assistant:  { key: 'assistants', label: 'Assistente' },
+  companyRep: { key: 'companyReps',label: 'Rappresentante' }
+};
+
+function renderPersonList(stateKey, elId, type) {
+  const el = $(elId);
+  const people = S[stateKey] || [];
+  if (!people.length) { el.innerHTML = `<p class="txt-sm txt-muted">Nessuno aggiunto</p>`; return; }
+  el.innerHTML = people.map(p => `
+    <div class="li">
+      <span class="li-name">${esc(p.name)}${p.brief ? ` <span class="txt-muted" style="font-size:12px">— ${esc(p.brief)}</span>` : ''}</span>
+      <button class="btn-icon" onclick="removePerson('${type}','${p.id}')">🗑</button>
+    </div>
+  `).join('');
+}
+
+function openAddPerson(type) {
+  $('mo-person-type').value = type;
+  $('mo-person-name').value = '';
+  $('mo-person-brief').value = '';
+  $('mo-person-title').textContent = 'Aggiungi ' + personKeys[type].label;
+  $('mo-student-extra').classList.toggle('hidden', type !== 'student');
+  openModal('mo-person');
+  setTimeout(() => $('mo-person-name').focus(), 120);
+}
+
+async function savePerson() {
+  const type = $('mo-person-type').value;
+  const name = $('mo-person-name').value.trim();
+  if (!name) { alert('Inserisci un nome'); return; }
+  const body = { name };
+  if (type === 'student') body.brief = $('mo-person-brief').value.trim();
+  await api('POST', `/api/${personKeys[type].key}`, body);
+  closeModal('mo-person');
+}
+
+async function removePerson(type, id) {
+  if (!confirm('Rimuovere questa persona? Le sue valutazioni verranno eliminate.')) return;
+  await api('DELETE', `/api/${personKeys[type].key}/${id}`);
+}
+
+// ══════════════════════════════════════════════════════════
+// XLSX IMPORT
+// ══════════════════════════════════════════════════════════
+function handleXlsx(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (rows.length < 2) { xlsxStatus('err','File vuoto o senza intestazioni.'); return; }
+      xlsxHeaders = rows[0].map(h => String(h).trim());
+      xlsxData = rows.slice(1).filter(r => r.some(c => c !== ''));
+      xlsxStatus('info', `File caricato: ${xlsxData.length} righe, ${xlsxHeaders.length} colonne.`);
+      showMapper();
+    } catch(err) { xlsxStatus('err', 'Errore lettura: ' + err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+  event.target.value = '';
+}
+
+function xlsxStatus(type, msg) {
+  const el = $('xlsx-status');
+  el.innerHTML = `<div class="alert alert-${type==='err'?'err':type==='ok'?'ok':'info'}">${msg}</div>`;
+  el.classList.remove('hidden');
+}
+
+function autoDetect(keywords) {
+  const i = xlsxHeaders.findIndex(h => keywords.some(k => h.toLowerCase().includes(k)));
+  return i >= 0 ? String(i) : '';
+}
+
+function showMapper() {
+  const opts = `<option value="">— nessuna —</option>` +
+    xlsxHeaders.map((h,i) => `<option value="${i}">${esc(h)}</option>`).join('');
+  const row = (id, lbl, det) => `
+    <div class="fg"><label>${lbl}</label>
+      <select id="${id}">${opts}</select></div>`;
+  $('col-mapper-form').innerHTML =
+    row('mp-st','🎓 Studenti *') +
+    row('mp-br','📁 Brief / Gruppo (opz.)') +
+    row('mp-pr','👨‍🏫 Professori (opz.)') +
+    row('mp-as','🧑‍💻 Assistenti (opz.)') +
+    row('mp-co','🏢 Rappresentanti aziendali (opz.)') +
+    `<label class="cb-row"><input type="checkbox" id="mp-rep" checked> Sostituisci dati esistenti</label>`;
+  const set = (id, val) => { if (val !== '') $(id).value = val; };
+  set('mp-st', autoDetect(['student','studente','nome','candidato','alunno']));
+  set('mp-br', autoDetect(['brief','gruppo','group','team','progetto','project']));
+  set('mp-pr', autoDetect(['professor','professore','docente','prof']));
+  set('mp-as', autoDetect(['assistant','assistente','tutor']));
+  set('mp-co', autoDetect(['company','azienda','aziendale','rep','referente']));
+  $('col-mapper').classList.remove('hidden');
+}
+
+async function applyMapping() {
+  const gc = id => { const v = $(id).value; return v !== '' ? parseInt(v) : null; };
+  const stCol = gc('mp-st');
+  if (stCol === null) { alert('Seleziona la colonna Studenti'); return; }
+  const brCol = gc('mp-br'), prCol = gc('mp-pr'), asCol = gc('mp-as'), coCol = gc('mp-co');
+  const replace = $('mp-rep').checked;
+
+  const students = replace ? [] : [...(S.students||[])];
+  const professors = replace ? [] : [...(S.professors||[])];
+  const assistants = replace ? [] : [...(S.assistants||[])];
+  const companyReps = replace ? [] : [...(S.companyReps||[])];
+  const has = (arr, name) => arr.some(p => p.name.toLowerCase() === name.toLowerCase());
+
+  xlsxData.forEach((row, i) => {
+    const uid = () => `p_xl_${Date.now()}_${i}_${Math.random().toString(36).slice(2,4)}`;
+    const tryAdd = (arr, col, extra={}) => {
+      const n = col !== null ? String(row[col] || '').trim() : '';
+      if (n && !has(arr, n)) arr.push({ id: uid(), name: n, ...extra });
+    };
+    tryAdd(students, stCol, { brief: brCol !== null ? String(row[brCol]||'').trim() : '' });
+    tryAdd(professors, prCol);
+    tryAdd(assistants, asCol);
+    tryAdd(companyReps, coCol);
+  });
+
+  await Promise.all([
+    api('PUT','/api/students', students),
+    api('PUT','/api/professors', professors),
+    api('PUT','/api/assistants', assistants),
+    api('PUT','/api/companyReps', companyReps)
+  ]);
+
+  xlsxStatus('ok', `Importazione completata: ${students.length} studenti, ${professors.length} professori, ${assistants.length} assistenti, ${companyReps.length} rappresentanti.`);
+  $('col-mapper').classList.add('hidden');
+  xlsxData = null; xlsxHeaders = [];
+}
+
+// ══════════════════════════════════════════════════════════
+// SESSIONS
+// ══════════════════════════════════════════════════════════
+function renderSessionsList() {
+  const el = $('lst-sessions');
+  const sessions = S.sessions || [];
+  if (!sessions.length) {
+    el.innerHTML = '<p class="txt-sm txt-muted">Nessuna sessione creata.</p>'; return;
+  }
+  const findName = (arr, id) => (arr||[]).find(p=>p.id===id)?.name || '?';
+  el.innerHTML = sessions.map(s => {
+    const profs = (s.professorIds||[]).map(id=>findName(S.professors,id)).join(', ');
+    const assts = (s.assistantIds||[]).map(id=>findName(S.assistants,id)).join(', ');
+    const comps = (s.companyRepIds||[]).map(id=>findName(S.companyReps,id)).join(', ');
+    const students = (s.studentIds||[]).map(id=>(S.students||[]).find(st=>st.id===id)).filter(Boolean);
+    const preview = students.slice(0,4).map(st=>esc(st.name)).join(', ');
+    return `<div class="card mb8">
+      <div class="flex-b mb8">
+        <div class="fw7" style="font-size:15px">${esc(s.name)}</div>
+        <div class="flex gap6">
+          <button class="btn btn-xs btn-sec" onclick="openAddSession('${s.id}')">✏️</button>
+          <button class="btn btn-xs btn-danger" onclick="deleteSession('${s.id}')">🗑</button>
+        </div>
+      </div>
+      <div class="txt-sm txt-s2 mb6">
+        ${profs ? `👨‍🏫 ${profs} ` : ''}${assts ? `· 🧑‍💻 ${assts} ` : ''}${comps ? `· 🏢 ${comps}` : ''}
+      </div>
+      <div class="txt-sm">👥 <strong>${students.length}</strong> studenti${preview ? ': ' + preview + (students.length>4?'…':'') : ''}</div>
+    </div>`;
+  }).join('');
+  if (sessions.length > 0 && (S.students||[]).length > 0) {
+    el.innerHTML += `<button class="btn btn-sec btn-block mt10" onclick="openModal('mo-divide')">
+      🔀 Ridividi studenti tra sessioni</button>`;
+  }
+}
+
+function populateSelects() {
+  const sessions = S.sessions || [];
+  const makeOpts = selId => {
+    const sel = $(selId); if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = `<option value="all">Tutti gli studenti</option>` +
+      sessions.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    if (cur) sel.value = cur;
+  };
+  makeOpts('sel-sess-ev');
+  makeOpts('sel-sess-res');
+
+  const evalSel = $('sel-eval');
+  const curEval = evalSel.value;
+  const mko = (arr, type, label) => arr.length
+    ? `<optgroup label="${label}">${arr.map(p=>`<option value="${p.id}|${type}">${esc(p.name)}</option>`).join('')}</optgroup>`
+    : '';
+  evalSel.innerHTML = `<option value="">— Seleziona valutatore —</option>` +
+    mko(S.professors||[], 'professor','👨‍🏫 Professori') +
+    mko(S.assistants||[], 'assistant','🧑‍💻 Assistenti') +
+    mko(S.companyReps||[],'companyRep','🏢 Rappresentanti');
+  if (curEval) evalSel.value = curEval;
+}
+
+function openAddSession(id) {
+  const mkCbs = (arr, pfx, checked=[]) => arr.length
+    ? arr.map(p=>`<label class="cb-row"><input type="checkbox" class="sess-cb sess-cb-${pfx}" value="${p.id}"${checked.includes(p.id)?' checked':''}> ${esc(p.name)}</label>`).join('')
+    : '<p class="txt-sm txt-muted">Nessuno disponibile</p>';
+  const sess = id ? (S.sessions||[]).find(s=>s.id===id) : null;
+  $('mo-sess-title').textContent = sess ? 'Modifica sessione' : 'Nuova sessione';
+  $('mo-sess-name').value = sess ? sess.name : `Commissione ${String.fromCharCode(65+(S.sessions||[]).length)}`;
+  $('mo-sess-id').value = id || '';
+  $('mo-sess-profs').innerHTML = mkCbs(S.professors||[], 'p', sess?.professorIds||[]);
+  $('mo-sess-assts').innerHTML = mkCbs(S.assistants||[], 'a', sess?.assistantIds||[]);
+  $('mo-sess-comps').innerHTML = mkCbs(S.companyReps||[],'c', sess?.companyRepIds||[]);
+  openModal('mo-session');
+}
+
+async function saveSession() {
+  const name = $('mo-sess-name').value.trim();
+  if (!name) { alert('Inserisci un nome'); return; }
+  const getChecked = pfx => [...document.querySelectorAll(`.sess-cb-${pfx}:checked`)].map(c=>c.value);
+  const body = { name, professorIds: getChecked('p'), assistantIds: getChecked('a'), companyRepIds: getChecked('c') };
+  const id = $('mo-sess-id').value;
+  if (id) await api('PUT', `/api/sessions/${id}`, body);
+  else {
+    await api('POST', '/api/sessions', body);
+    if ((S.sessions||[]).length >= 1 && (S.students||[]).length > 0) {
+      closeModal('mo-session');
+      openModal('mo-divide');
+      return;
+    }
+  }
+  closeModal('mo-session');
+}
+
+async function deleteSession(id) {
+  if (!confirm('Eliminare questa sessione?')) return;
+  await api('DELETE', `/api/sessions/${id}`);
+}
+
+async function doDivide() {
+  const method = document.querySelector('input[name="div-method"]:checked')?.value || 'alternating';
+  await api('POST', '/api/divide', { method });
+  closeModal('mo-divide');
+}
+
+// ══════════════════════════════════════════════════════════
+// EVALUATE TAB
+// ══════════════════════════════════════════════════════════
+function getStudents(sessionId) {
+  if (sessionId === 'all' || !(S.sessions||[]).length) return S.students || [];
+  const sess = (S.sessions||[]).find(s=>s.id===sessionId);
+  return sess ? (sess.studentIds||[]).map(id=>(S.students||[]).find(s=>s.id===id)).filter(Boolean) : [];
+}
+
+function renderEval() {
+  const sessionId = $('sel-sess-ev').value;
+  const evalVal = $('sel-eval').value;
+  const cnt = $('eval-content');
+  if (!evalVal) { cnt.innerHTML='<div class="card"><p class="txt-sm txt-muted">Seleziona un valutatore per iniziare.</p></div>'; return; }
+
+  const [evaluatorId, evaluatorType] = evalVal.split('|');
+  const students = getStudents(sessionId);
+
+  if (!students.length) { cnt.innerHTML='<div class="card"><p class="txt-sm txt-muted">Nessuno studente in questa sessione.</p></div>'; return; }
+
+  const done = students.filter(s=>{
+    const ev=(S.evaluations||[]).find(e=>e.studentId===s.id&&e.evaluatorId===evaluatorId);
+    return ev && Object.keys(ev.scores||{}).length>0;
+  }).length;
+
+  cnt.innerHTML = `
+    <div class="card mb8">
+      <div class="flex-b">
+        <div><span class="fw7">${students.length} studenti</span>
+          <span class="txt-s2 txt-sm"> · ${done} valutati</span></div>
+        <div style="min-width:70px">
+          <div class="txt-sm" style="text-align:right;color:var(--txt2)">${Math.round(done/students.length*100)||0}%</div>
+          <div class="pb"><div class="pb-fill" style="width:${Math.round(done/students.length*100)||0}%"></div></div>
+        </div>
+      </div>
+    </div>
+    ${students.map(s => buildStudentCard(s, evaluatorId, evaluatorType)).join('')}
+  `;
+}
+
+function buildStudentCard(student, evaluatorId, evaluatorType) {
+  const ev = (S.evaluations||[]).find(e=>e.studentId===student.id&&e.evaluatorId===evaluatorId);
+  const scores = ev?.scores || {};
+  const comment = ev?.comment || '';
+  const final = computeFinal(student.id);
+  const cfg = S.config || {};
+  const areas = cfg.areas || [];
+  const smin = cfg.scoreMin ?? 0, smax = cfg.scoreMax ?? 30;
+
+  const areaInputs = areas.map(a => `
+    <label style="margin:0;font-size:13px;font-weight:500;color:var(--txt)">${esc(a.name)}</label>
+    <input type="number" class="score-in" inputmode="decimal"
+      min="${smin}" max="${smax}" step="0.5" placeholder="—"
+      value="${scores[a.id]!==undefined?scores[a.id]:''}"
+      data-sid="${student.id}" data-eid="${evaluatorId}" data-etype="${evaluatorType}" data-area="${a.id}"
+      onchange="onScoreChange(this)">
+  `).join('');
+
+  const areaAvgs = areas.map(a => {
+    const avg = computeAreaAvg(student.id, a.id);
+    return `<div class="avg-row"><span class="avg-lbl">${esc(a.name)}</span>
+      <span class="avg-val" id="avv-${student.id}-${a.id}">${avg!==null?avg.toFixed(1):'—'}</span></div>`;
+  }).join('');
+
+  // All comments from all evaluators
+  const allEvals = (S.evaluations||[]).filter(e=>e.studentId===student.id&&e.comment);
+  const commentsHtml = allEvals.length ? `
+    <div class="esec-title" style="margin-top:10px">Commenti</div>
+    ${allEvals.map(ev2=>{
+      const who = [...(S.professors||[]),...(S.assistants||[]),...(S.companyReps||[])].find(p=>p.id===ev2.evaluatorId);
+      return `<div class="comment-item"><div class="comment-who">${esc(who?.name||'?')} (${ev2.evaluatorType})</div>${esc(ev2.comment)}</div>`;
+    }).join('')}
+  ` : '';
+
+  return `<div class="sec">
+    <div class="sec-hdr" onclick="toggleCard('${student.id}')">
+      <div>
+        <div class="sec-name">${esc(student.name)}</div>
+        ${student.brief?`<div class="sec-brief">${esc(student.brief)}</div>`:''}
+      </div>
+      <div class="grade-prev" id="gp-${student.id}">${final!==null?final.toFixed(1):'—'}</div>
+      <div class="sec-arrow" id="arr-${student.id}">▼</div>
+    </div>
+    <div class="sec-body" id="body-${student.id}">
+      <div class="esec-title">La tua valutazione</div>
+      <div class="area-grid">${areaInputs}</div>
+      <div class="fg mt10"><label>Commento</label>
+        <textarea placeholder="Inserisci un commento (opzionale)..."
+          data-sid="${student.id}" data-eid="${evaluatorId}" data-etype="${evaluatorType}"
+          oninput="onCommentInput(this)"
+        >${esc(comment)}</textarea>
+      </div>
+      <div class="esec-title mt10">Media globale studente</div>
+      ${areaAvgs}
+      <div class="final-box"><span class="label">Voto finale</span>
+        <span class="val" id="fv-${student.id}">${final!==null?final.toFixed(1):'—'}</span></div>
+      ${commentsHtml}
+    </div>
+  </div>`;
+}
+
+function toggleCard(sid) {
+  const body = $('body-'+sid), arr = $('arr-'+sid);
+  const open = body.classList.toggle('open');
+  if (arr) arr.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// Debounced save handlers
+const debouncedScore = debounce(async (sid, eid, etype, areaId, val) => {
+  const score = val === '' ? null : parseFloat(val);
+  await api('PUT', '/api/evaluations', { studentId:sid, evaluatorId:eid, evaluatorType:etype, scores:{[areaId]: score} });
+}, 600);
+
+const debouncedComment = debounce(async (sid, eid, etype, val) => {
+  await api('PUT', '/api/evaluations', { studentId:sid, evaluatorId:eid, evaluatorType:etype, comment:val });
+}, 900);
+
+function onScoreChange(input) {
+  const { sid, eid, etype, area } = input.dataset;
+  // Optimistic local update
+  let ev = (S.evaluations||[]).find(e=>e.studentId===sid&&e.evaluatorId===eid);
+  if (!ev) { ev={id:'tmp',studentId:sid,evaluatorId:eid,evaluatorType:etype,scores:{},comment:''}; (S.evaluations=S.evaluations||[]).push(ev); }
+  const v = input.value === '' ? undefined : parseFloat(input.value);
+  if (v === undefined) delete ev.scores[area]; else ev.scores[area] = v;
+  refreshGradePreviews();
+  debouncedScore(sid, eid, etype, area, input.value);
+}
+
+function onCommentInput(ta) {
+  const { sid, eid, etype } = ta.dataset;
+  debouncedComment(sid, eid, etype, ta.value);
+}
+
+function refreshGradePreviews() {
+  (S.students||[]).forEach(s => {
+    const final = computeFinal(s.id);
+    const gp = $('gp-'+s.id), fv = $('fv-'+s.id);
+    const txt = final !== null ? final.toFixed(1) : '—';
+    if (gp) gp.textContent = txt;
+    if (fv) fv.textContent = txt;
+    (S.config?.areas||[]).forEach(a => {
+      const avg = computeAreaAvg(s.id, a.id);
+      const el = $(`avv-${s.id}-${a.id}`);
+      if (el) el.textContent = avg !== null ? avg.toFixed(1) : '—';
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// GRADE COMPUTATION
+// ══════════════════════════════════════════════════════════
+function weight(type) {
+  const w = S.config?.weights || {};
+  return type==='professor'?w.professor??3:type==='assistant'?w.assistant??2:w.companyRep??1;
+}
+
+function computeAreaAvg(studentId, areaId) {
+  const evals = (S.evaluations||[]).filter(e=>e.studentId===studentId&&e.scores&&e.scores[areaId]!==undefined);
+  if (!evals.length) return null;
+  let ws=0, wt=0;
+  evals.forEach(e=>{ const w2=weight(e.evaluatorType); ws+=e.scores[areaId]*w2; wt+=w2; });
+  return wt>0?ws/wt:null;
+}
+
+function computeFinal(studentId) {
+  const avgs = (S.config?.areas||[]).map(a=>computeAreaAvg(studentId,a.id)).filter(v=>v!==null);
+  return avgs.length?avgs.reduce((a,b)=>a+b,0)/avgs.length:null;
+}
+
+// ══════════════════════════════════════════════════════════
+// RESULTS TAB
+// ══════════════════════════════════════════════════════════
+function renderResults() {
+  const sessionId = $('sel-sess-res')?.value || 'all';
+  const students = getStudents(sessionId);
+  const el = $('results-content');
+  const areas = S.config?.areas || [];
+  if (!students.length) { el.innerHTML='<p class="txt-sm txt-muted">Nessun dato.</p>'; return; }
+
+  const rows = students.map(s => {
+    const aAvgs = areas.map(a=>computeAreaAvg(s.id,a.id));
+    const final = computeFinal(s.id);
+    return `<tr>
+      <td style="font-weight:500">${esc(s.name)}</td>
+      <td class="txt-s2">${esc(s.brief||'—')}</td>
+      ${aAvgs.map(v=>`<td class="td-grade">${v!==null?v.toFixed(1):'—'}</td>`).join('')}
+      <td class="td-final">${final!==null?final.toFixed(1):'—'}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th>Studente</th><th>Brief</th>
+      ${areas.map(a=>`<th>${esc(a.name)}</th>`).join('')}
+      <th>Voto Finale</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+// EXPORT / IMPORT
+// ══════════════════════════════════════════════════════════
+function exportXlsx() {
+  const sessionId = $('sel-sess-res')?.value || 'all';
+  const students = getStudents(sessionId);
+  const areas = S.config?.areas || [];
+  const course = S.config?.courseName || 'Esame';
+
+  const h1 = ['Studente','Brief',...areas.map(a=>a.name),'Voto Finale'];
+  const r1 = students.map(s=>[s.name,s.brief||'',...areas.map(a=>{const v=computeAreaAvg(s.id,a.id);return v!==null?+v.toFixed(2):null;}),
+    (v=>v!==null?+v.toFixed(2):null)(computeFinal(s.id))]);
+
+  const h2 = ['Studente','Brief','Valutatore','Tipo',...areas.map(a=>a.name),'Commento'];
+  const r2 = [];
+  students.forEach(s=>{
+    (S.evaluations||[]).filter(e=>e.studentId===s.id).forEach(ev=>{
+      const who=[...(S.professors||[]),...(S.assistants||[]),...(S.companyReps||[])].find(p=>p.id===ev.evaluatorId);
+      r2.push([s.name,s.brief||'',who?.name||'?',ev.evaluatorType,...areas.map(a=>ev.scores?.[a.id]??null),ev.comment||'']);
+    });
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([h1,...r1]), 'Riepilogo');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([h2,...r2]), 'Dettaglio voti');
+  XLSX.writeFile(wb, `Risultati_${course}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+function exportBackup() {
+  const blob = new Blob([JSON.stringify(S, null, 2)], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url;
+  a.download=`backup_evalpoli_${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+function importBackup(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!confirm('Importare i dati? I dati attuali verranno sostituiti.')) return;
+      await api('PUT', '/api/state', data);
+    } catch(err) { alert('Errore importazione: '+err.message); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+async function resetData() {
+  if (!confirm('ATTENZIONE: elimina TUTTI i dati. Sei sicuro?')) return;
+  if (!confirm('Seconda conferma: eliminare davvero tutto?')) return;
+  await api('PUT', '/api/state', {
+    config: { courseName:'', areas:[
+      {id:'a1',name:'Completezza e Innovazione'},
+      {id:'a2',name:'Innovazione'},
+      {id:'a3',name:'Esposizione'}
+    ], weights:{professor:3,assistant:2,companyRep:1}, scoreMin:0, scoreMax:30 },
+    sessions:[], students:[], professors:[], assistants:[], companyReps:[], evaluations:[]
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// MODALS
+// ══════════════════════════════════════════════════════════
+function openModal(id) { $(id).classList.add('open'); }
+function closeModal(id) { $(id).classList.remove('open'); }
+
+document.querySelectorAll('.mo').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); });
+});
+
+// ══════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ══════════════════════════════════════════════════════════
+$('inp-pw').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
+$('inp-pw1').addEventListener('keydown', e => { if (e.key==='Enter') $('inp-pw2').focus(); });
+$('inp-pw2').addEventListener('keydown', e => { if (e.key==='Enter') doSetup(); });
+$('mo-person-name').addEventListener('keydown', e => { if (e.key==='Enter') savePerson(); });
+$('btn-login').addEventListener('click', doLogin);
+$('btn-setup').addEventListener('click', doSetup);
+
+// ══════════════════════════════════════════════════════════
+// STARTUP
+// ══════════════════════════════════════════════════════════
+initAuth().catch(e => console.error('Init error:', e));
+</script>
+</body>
+</html>
