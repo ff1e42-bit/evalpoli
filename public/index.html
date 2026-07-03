@@ -2,1286 +2,1168 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>EvalPoli — Valutazione Esami</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EvalPoli</title>
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --pri: #1d4ed8;
-  --pri-dk: #1e3a8a;
-  --pri-lt: #3b82f6;
-  --acc: #0ea5e9;
-  --ok: #16a34a;
-  --warn: #f59e0b;
-  --err: #ef4444;
-  --bg: #f1f5f9;
-  --surface: #fff;
-  --surface2: #f8fafc;
-  --border: #cbd5e1;
-  --border-lt: #e2e8f0;
-  --txt: #0f172a;
-  --txt2: #475569;
-  --txt3: #94a3b8;
-  --r: 10px;
-  --r-sm: 6px;
-  --r-lg: 16px;
-  --sh: 0 1px 3px rgba(0,0,0,.09);
-  --sh-lg: 0 8px 24px rgba(0,0,0,.14);
-  --nav: 62px;
-  --hdr: 54px;
+  --bg: #f5f6fa; --card: #fff; --border: #e0e4ef; --primary: #4263eb;
+  --primary-light: #eef1fd; --danger: #e03131; --success: #2f9e44;
+  --text: #1a1d2e; --muted: #6b7280; --radius: 10px; --shadow: 0 2px 8px rgba(0,0,0,.08);
 }
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  background:var(--bg);color:var(--txt);font-size:15px;line-height:1.5;-webkit-tap-highlight-color:transparent}
+body { font-family: system-ui,sans-serif; background: var(--bg); color: var(--text); min-height:100vh; }
 
-/* ── LOGIN ─────────────────────────────────────────────────────── */
-#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,var(--pri-dk) 0%,var(--pri) 55%,var(--acc) 100%);padding:20px}
-.login-card{background:var(--surface);border-radius:var(--r-lg);padding:36px 28px;
-  width:100%;max-width:360px;box-shadow:var(--sh-lg);text-align:center}
-.login-logo{font-size:44px;margin-bottom:8px}
-.login-card h1{font-size:22px;font-weight:800;color:var(--pri);margin-bottom:2px}
-.login-card .sub{color:var(--txt2);font-size:13px;margin-bottom:28px}
+/* ── Auth ──────────────────────────────────── */
+#auth-overlay {
+  position:fixed; inset:0; background:var(--bg); display:flex; align-items:center;
+  justify-content:center; z-index:999;
+}
+.auth-box {
+  background:var(--card); border-radius:var(--radius); padding:2rem; width:min(380px,90vw);
+  box-shadow:var(--shadow); text-align:center;
+}
+.auth-box h1 { font-size:1.6rem; margin-bottom:.25rem; color:var(--primary); }
+.auth-box p  { color:var(--muted); margin-bottom:1.5rem; font-size:.9rem; }
 
-/* ── HEADER ────────────────────────────────────────────────────── */
-#hdr{position:fixed;top:0;left:0;right:0;height:var(--hdr);background:var(--pri);color:#fff;
-  display:flex;align-items:center;justify-content:space-between;padding:0 14px;
-  z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.18)}
-#hdr h1{font-size:16px;font-weight:700;letter-spacing:.01em}
-#hdr-right{display:flex;gap:6px;align-items:center}
+/* ── Layout ────────────────────────────────── */
+#app { display:flex; flex-direction:column; height:100vh; }
+header {
+  background:var(--card); border-bottom:1px solid var(--border);
+  padding:.75rem 1.25rem; display:flex; align-items:center; gap:.75rem;
+  position:sticky; top:0; z-index:100;
+}
+header h1 { font-size:1.1rem; font-weight:700; color:var(--primary); flex:1; }
+.header-meta { font-size:.8rem; color:var(--muted); }
+.nav-tabs {
+  display:flex; background:var(--card); border-bottom:1px solid var(--border);
+  padding:0 1rem; overflow-x:auto; position:sticky; top:57px; z-index:99;
+}
+.nav-tab {
+  padding:.6rem 1rem; font-size:.85rem; font-weight:600; color:var(--muted);
+  border:none; background:none; cursor:pointer; border-bottom:2.5px solid transparent;
+  white-space:nowrap; transition:color .15s;
+}
+.nav-tab.active { color:var(--primary); border-bottom-color:var(--primary); }
+.tab-content { flex:1; overflow-y:auto; padding:1rem; max-width:860px; margin:0 auto; width:100%; }
 
-/* ── BOTTOM NAV (mobile) ────────────────────────────────────────── */
-#nav{position:fixed;bottom:0;left:0;right:0;height:var(--nav);background:var(--surface);
-  border-top:1px solid var(--border-lt);display:flex;z-index:100;
-  box-shadow:0 -2px 8px rgba(0,0,0,.07)}
-.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:3px;border:none;background:none;cursor:pointer;color:var(--txt3);
-  font-size:10px;font-weight:600;padding:6px 2px;transition:color .15s;font-family:inherit}
-.nav-btn.active{color:var(--pri)}
-.nav-btn .ic{font-size:19px}
+/* ── Cards & Forms ─────────────────────────── */
+.card { background:var(--card); border-radius:var(--radius); padding:1rem 1.25rem; box-shadow:var(--shadow); margin-bottom:1rem; }
+.card-title { font-size:.9rem; font-weight:700; margin-bottom:.75rem; color:var(--primary); }
+.form-row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:.5rem; }
+.form-group { display:flex; flex-direction:column; gap:.25rem; flex:1; min-width:140px; }
+label { font-size:.78rem; font-weight:600; color:var(--muted); }
+input[type=text], input[type=number], input[type=password], input[type=url], select, textarea {
+  border:1px solid var(--border); border-radius:6px; padding:.45rem .6rem;
+  font-size:.88rem; font-family:inherit; background:var(--bg); color:var(--text); width:100%;
+}
+input:focus, select:focus, textarea:focus { outline:none; border-color:var(--primary); }
+textarea { resize:vertical; min-height:60px; }
+.btn {
+  display:inline-flex; align-items:center; gap:.35rem; padding:.45rem .9rem;
+  border:none; border-radius:6px; cursor:pointer; font-size:.85rem; font-weight:600;
+  font-family:inherit; transition:.15s;
+}
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-primary:hover { filter:brightness(1.1); }
+.btn-danger  { background:var(--danger); color:#fff; }
+.btn-ghost   { background:transparent; border:1px solid var(--border); color:var(--text); }
+.btn-ghost:hover { background:var(--bg); }
+.btn-sm { padding:.3rem .65rem; font-size:.78rem; }
+.btn-full { width:100%; justify-content:center; }
+.tag {
+  display:inline-block; padding:.2rem .55rem; border-radius:20px;
+  font-size:.72rem; font-weight:700; background:var(--primary-light); color:var(--primary);
+}
+.chip-list { display:flex; flex-wrap:wrap; gap:.4rem; margin:.5rem 0; }
+.person-list { list-style:none; display:flex; flex-direction:column; gap:.35rem; }
+.person-item {
+  display:flex; align-items:center; gap:.5rem; padding:.4rem .6rem;
+  background:var(--bg); border-radius:6px; font-size:.85rem;
+}
+.person-item .pname { flex:1; }
+.person-item .codice { color:var(--muted); font-size:.78rem; }
 
-/* ── CONTENT ────────────────────────────────────────────────────── */
-#content{padding:calc(var(--hdr) + 12px) 14px calc(var(--nav) + 14px);min-height:100vh}
-.tab{display:none}.tab.active{display:block}
+/* ── Exam tabs strip ────────────────────────── */
+.exam-strip {
+  display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:.75rem; align-items:center;
+}
+.exam-tab-btn {
+  padding:.3rem .75rem; border-radius:20px; border:1.5px solid var(--border);
+  background:var(--card); font-size:.82rem; font-weight:600; cursor:pointer; transition:.15s;
+}
+.exam-tab-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
 
-/* ── CARDS ──────────────────────────────────────────────────────── */
-.card{background:var(--surface);border-radius:var(--r);padding:15px;margin-bottom:12px;
-  box-shadow:var(--sh);border:1px solid var(--border-lt)}
-.card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-  color:var(--txt2);margin-bottom:11px}
+/* ── Brief colors ───────────────────────────── */
+.brief-color-0  { --brief-col:#4263eb; }
+.brief-color-1  { --brief-col:#e03131; }
+.brief-color-2  { --brief-col:#2f9e44; }
+.brief-color-3  { --brief-col:#f76707; }
+.brief-color-4  { --brief-col:#7c5cfc; }
+.brief-color-5  { --brief-col:#0c8599; }
+.brief-color-6  { --brief-col:#d6336c; }
+.brief-color-7  { --brief-col:#5c7a29; }
+.brief-color-8  { --brief-col:#e8590c; }
+.brief-color-9  { --brief-col:#1971c2; }
 
-/* ── FORMS ──────────────────────────────────────────────────────── */
-label{display:block;font-size:13px;font-weight:500;color:var(--txt2);margin-bottom:4px}
-input[type=text],input[type=number],input[type=password],select,textarea{
-  width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:var(--r-sm);
-  font-size:15px;font-family:inherit;color:var(--txt);background:var(--surface);
-  transition:border-color .15s;-webkit-appearance:none;appearance:none}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri-lt);
-  box-shadow:0 0 0 3px rgba(59,130,246,.15)}
-textarea{resize:vertical;min-height:72px}
-.fg{margin-bottom:12px}
-.frow{display:flex;gap:10px;align-items:flex-end}
-.frow>*{flex:1}.frow>.f0{flex:none}
-input[type=number].w70{width:70px!important}
+/* ── Student card (Valuta) ──────────────────── */
+.student-card {
+  background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
+  margin-bottom:.75rem; overflow:hidden;
+  border-left:4px solid var(--brief-col, var(--border));
+}
+.student-header {
+  display:flex; align-items:center; gap:.6rem; padding:.65rem 1rem;
+  cursor:pointer; user-select:none;
+}
+.student-header .sname { font-weight:700; font-size:.92rem; flex:1; }
+.student-header .scode { font-size:.75rem; color:var(--muted); }
+.student-header .brief-badge {
+  font-size:.72rem; font-weight:700; padding:.15rem .5rem; border-radius:20px;
+  background:var(--brief-col, var(--border)); color:#fff;
+}
+.student-body { padding:0 1rem 1rem; }
+.areas-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:.5rem; margin-bottom:.6rem; }
+.area-input-wrap { display:flex; flex-direction:column; gap:.2rem; }
+.area-label { font-size:.72rem; font-weight:600; color:var(--muted); }
+.score-input {
+  border:1px solid var(--border); border-radius:6px; padding:.35rem .5rem;
+  font-size:.95rem; text-align:center; font-weight:700; background:var(--bg);
+  width:100%;
+}
+.score-input.has-lode { border-color:gold; background:#fffde7; }
+.grade-preview { font-size:.78rem; color:var(--muted); margin-top:.2rem; }
+.grade-preview span { font-weight:700; color:var(--text); }
+.comment-row { margin-top:.5rem; }
+.comment-row textarea { font-size:.82rem; min-height:44px; }
 
-/* ── BUTTONS ────────────────────────────────────────────────────── */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  padding:10px 16px;border-radius:var(--r-sm);font-size:14px;font-weight:600;
-  cursor:pointer;border:none;transition:all .15s;font-family:inherit;white-space:nowrap}
-.btn-pri{background:var(--pri);color:#fff}.btn-pri:active{background:var(--pri-dk)}
-.btn-sec{background:var(--surface);color:var(--txt);border:1.5px solid var(--border)}
-.btn-sec:active{background:var(--bg)}
-.btn-danger{background:var(--err);color:#fff}
-.btn-ok{background:var(--ok);color:#fff}
-.btn-sm{padding:6px 11px;font-size:13px}
-.btn-xs{padding:4px 8px;font-size:12px}
-.btn-block{width:100%}
-.btn-icon{padding:7px;border-radius:var(--r-sm);background:none;border:none;
-  cursor:pointer;color:var(--txt2);font-size:15px;line-height:1}
-.btn-icon:hover{color:var(--err);background:var(--bg)}
+/* ── Privacy mode ────────────────────────────── */
+.privacy-mode .score-input,
+.privacy-mode .comment-row { filter:blur(6px); pointer-events:none; }
+.privacy-btn.active { background:var(--danger); color:#fff; border-color:var(--danger); }
 
-/* ── LIST ITEMS ─────────────────────────────────────────────────── */
-.li{display:flex;align-items:center;gap:8px;padding:9px 11px;
-  background:var(--surface2);border-radius:var(--r-sm);margin-bottom:5px;
-  border:1px solid var(--border-lt)}
-.li-name{flex:1;font-size:14px}
-.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
-.b-blue{background:#dbeafe;color:#1d4ed8}
-.b-green{background:#dcfce7;color:#15803d}
-.b-yellow{background:#fef3c7;color:#b45309}
-.b-gray{background:#f1f5f9;color:#475569}
-
-/* ── STUDENT EVAL CARD ──────────────────────────────────────────── */
-.sec{background:var(--surface);border-radius:var(--r);margin-bottom:9px;
-  border:1px solid var(--border-lt);box-shadow:var(--sh);overflow:hidden}
-.sec-hdr{padding:11px 14px;display:flex;align-items:center;gap:10px;
-  cursor:pointer;background:var(--surface);user-select:none}
-.sec-hdr:active{background:var(--surface2)}
-.sec-name{flex:1;font-weight:600;font-size:15px}
-.sec-brief{font-size:11px;color:var(--txt2)}
-.grade-prev{font-size:21px;font-weight:800;color:var(--pri);min-width:42px;text-align:right}
-.sec-arrow{color:var(--txt3);font-size:12px;transition:transform .2s}
-.sec-body{display:none;padding:12px 14px;border-top:1px solid var(--border-lt)}
-.sec-body.open{display:block}
-
-.area-grid{display:grid;grid-template-columns:1fr 80px;gap:6px 10px;align-items:center;margin-bottom:10px}
-.area-grid label{margin:0;font-size:13px;font-weight:500;color:var(--txt)}
-.score-in{width:80px!important;text-align:center;padding:7px 6px!important;
-  font-weight:700;font-size:15px}
-.esec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-  color:var(--txt2);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border-lt)}
-.avg-row{display:flex;justify-content:space-between;align-items:center;
-  padding:4px 0;font-size:13px}
-.avg-lbl{color:var(--txt2)}
-.avg-val{font-weight:700;color:var(--pri);font-size:14px}
-.final-box{display:flex;justify-content:space-between;align-items:center;
-  background:var(--pri);color:#fff;padding:11px 14px;border-radius:var(--r-sm);margin-top:10px}
-.final-box .label{font-size:14px;font-weight:600}
-.final-box .val{font-size:26px;font-weight:800}
-
-/* ── COMMENTS SECTION ───────────────────────────────────────────── */
-.comments-list{margin-top:10px}
-.comment-item{background:var(--surface2);border:1px solid var(--border-lt);
-  border-radius:var(--r-sm);padding:9px 11px;margin-bottom:6px;font-size:13px}
-.comment-who{font-weight:600;color:var(--txt2);font-size:11px;margin-bottom:3px}
-
-/* ── RESULTS TABLE ──────────────────────────────────────────────── */
-.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--r);
-  border:1px solid var(--border-lt)}
-table{width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);min-width:480px}
-th{background:var(--bg);padding:9px 11px;text-align:left;font-size:11px;font-weight:700;
-  text-transform:uppercase;letter-spacing:.05em;color:var(--txt2);
-  border-bottom:1px solid var(--border);white-space:nowrap}
-td{padding:9px 11px;border-bottom:1px solid var(--border-lt);color:var(--txt)}
-tr:last-child td{border-bottom:none}
-tr:hover td{background:var(--surface2)}
-.td-grade{font-weight:700;color:var(--pri)}
-.td-final{font-weight:800;font-size:15px;color:var(--pri-dk)}
-
-/* ── MODALS ─────────────────────────────────────────────────────── */
-.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);
-  z-index:200;align-items:flex-end;justify-content:center}
-.mo.open{display:flex}
-.mo-inner{background:var(--surface);border-radius:var(--r-lg) var(--r-lg) 0 0;
-  padding:22px 18px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto}
-@media(min-width:600px){.mo{align-items:center}.mo-inner{border-radius:var(--r-lg);max-height:90vh}}
-.mo-title{font-size:18px;font-weight:700;margin-bottom:14px}
-.mo-actions{display:flex;gap:10px;margin-top:18px}
-
-/* ── ALERTS ─────────────────────────────────────────────────────── */
-.alert{padding:9px 13px;border-radius:var(--r-sm);font-size:13px;margin-bottom:10px}
-.alert-err{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
-.alert-ok{background:#f0fdf4;color:#14532d;border:1px solid #bbf7d0}
-.alert-info{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe}
-
-/* ── MISC ───────────────────────────────────────────────────────── */
-.hidden{display:none!important}
-.flex{display:flex}.flex-b{display:flex;justify-content:space-between;align-items:center}
-.gap6{gap:6px}.gap8{gap:8px}.gap10{gap:10px}
-.mb8{margin-bottom:8px}.mb10{margin-bottom:10px}.mb12{margin-bottom:12px}.mt10{margin-top:10px}.mt12{margin-top:12px}
-.txt-sm{font-size:13px}.txt-muted{color:var(--txt3)}.txt-s2{color:var(--txt2)}
-.fw6{font-weight:600}.fw7{font-weight:700}
-.sec-hdr-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.sec-hdr-title{font-size:16px;font-weight:700}
-.divider{height:1px;background:var(--border-lt);margin:10px 0}
-.pb{height:4px;background:var(--border-lt);border-radius:2px;overflow:hidden;margin-top:4px}
-.pb-fill{height:100%;background:var(--pri);border-radius:2px;transition:width .3s}
-.tag{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;
-  font-size:12px;font-weight:600;background:var(--bg);color:var(--txt2);border:1px solid var(--border)}
-.sync-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;
-  display:inline-block;flex-shrink:0}
-.sync-dot.saving{background:var(--warn)}
-.sync-dot.err{background:var(--err)}
-
-/* ── DESKTOP LAYOUT ─────────────────────────────────────────────── */
-@media(min-width:780px){
-  #nav{top:var(--hdr);bottom:auto;right:auto;width:190px;
-    height:calc(100vh - var(--hdr));flex-direction:column;border-top:none;
-    border-right:1px solid var(--border-lt);box-shadow:none;padding:8px 0}
-  .nav-btn{flex-direction:row;justify-content:flex-start;gap:10px;
-    padding:11px 16px;font-size:14px;border-radius:var(--r-sm);margin:1px 8px;width:calc(100% - 16px)}
-  .nav-btn .ic{font-size:17px}
-  #content{padding-left:204px;padding-bottom:20px;max-width:1100px}
+/* ── Final grade badge ───────────────────────── */
+.final-badge {
+  display:inline-block; padding:.25rem .65rem; border-radius:6px;
+  font-size:.88rem; font-weight:700; background:var(--primary-light); color:var(--primary);
+  min-width:3rem; text-align:center;
 }
 
-/* Checkbox style */
-.cb-row{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-weight:normal;font-size:14px}
-.cb-row input[type=checkbox]{width:17px;height:17px;flex-shrink:0;cursor:pointer}
-.radio-card{display:flex;gap:10px;align-items:flex-start;padding:11px;
-  border:2px solid var(--border);border-radius:var(--r-sm);cursor:pointer;margin-bottom:8px}
-.radio-card input[type=radio]{margin-top:2px;flex-shrink:0}
-.radio-card .rc-title{font-weight:600;font-size:14px}
-.radio-card .rc-sub{font-size:12px;color:var(--txt2)}
+/* ── Risultati ────────────────────────────────── */
+.risultati-table { width:100%; border-collapse:collapse; font-size:.83rem; }
+.risultati-table th { background:var(--primary-light); color:var(--primary); font-size:.75rem; text-align:left; padding:.4rem .6rem; position:sticky; top:0; }
+.risultati-table td { padding:.4rem .6rem; border-bottom:1px solid var(--border); vertical-align:top; }
+.risultati-table tr:hover > td { background:var(--bg); }
+.detail-row > td { background:#f9f9ff; font-size:.78rem; padding:.5rem; }
+.detail-row table { width:100%; border-collapse:collapse; }
+.detail-row table th { background:var(--bg); font-size:.72rem; padding:.25rem .4rem; }
+.detail-row table td { padding:.25rem .4rem; border-bottom:1px solid var(--border); }
+.toggle-detail { cursor:pointer; color:var(--primary); font-size:.75rem; white-space:nowrap; }
 
-/* Spinner */
-.spin{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.4);
-  border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite}
-@keyframes sp{to{transform:rotate(360deg)}}
+/* ── Sessioni ─────────────────────────────────── */
+.session-card {
+  background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
+  margin-bottom:.75rem; overflow:hidden;
+}
+.session-header {
+  display:flex; align-items:center; gap:.5rem; padding:.6rem 1rem;
+  background:var(--primary-light); border-bottom:1px solid var(--border);
+}
+.session-header .sname { flex:1; font-weight:700; font-size:.88rem; color:var(--primary); }
+.session-body { padding:.75rem 1rem; }
+
+/* ── Misc ─────────────────────────────────────── */
+.row2 { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+@media (max-width:480px) { .row2 { grid-template-columns:1fr; } }
+.search-bar { display:flex; align-items:center; gap:.5rem; flex:1; min-width:160px; }
+.search-bar input { flex:1; }
+.toolbar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:.75rem; }
+.drive-link { font-size:.78rem; color:var(--primary); text-decoration:none; }
+.drive-link:hover { text-decoration:underline; }
+.empty { text-align:center; color:var(--muted); padding:2rem; font-size:.9rem; }
+.msg { padding:.6rem .8rem; border-radius:6px; font-size:.82rem; margin-bottom:.5rem; }
+.msg-err { background:#ffe3e3; color:var(--danger); }
+.msg-ok  { background:#d3f9d8; color:var(--success); }
+hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
 </style>
 </head>
 <body>
 
-<!-- ══════════════════ LOGIN ══════════════════ -->
-<div id="login-screen">
-  <div class="login-card">
-    <div class="login-logo">🎓</div>
+<!-- Auth overlay -->
+<div id="auth-overlay">
+  <div class="auth-box">
     <h1>EvalPoli</h1>
-    <p class="sub">Sistema di valutazione esami</p>
-
-    <div id="frm-login">
-      <div class="fg"><label>Password</label>
-        <input type="password" id="inp-pw" placeholder="Inserisci la password" autocomplete="current-password">
-      </div>
-      <div id="login-err" class="alert alert-err hidden">Password errata</div>
-      <button class="btn btn-pri btn-block" id="btn-login">Accedi</button>
-    </div>
-
-    <div id="frm-setup" class="hidden">
-      <div class="alert alert-info mb12">Prima configurazione: imposta una password per proteggere i tuoi dati.</div>
-      <div class="fg"><label>Nuova password</label>
-        <input type="password" id="inp-pw1" placeholder="Minimo 4 caratteri">
-      </div>
-      <div class="fg"><label>Conferma</label>
-        <input type="password" id="inp-pw2" placeholder="Ripeti la password">
-      </div>
-      <div id="setup-err" class="alert alert-err hidden"></div>
-      <button class="btn btn-pri btn-block" id="btn-setup">Imposta e accedi</button>
-    </div>
+    <p id="auth-subtitle">Caricamento…</p>
+    <form id="auth-form" style="display:none">
+      <input id="pw-input" type="password" placeholder="Password" style="margin-bottom:.75rem;display:block;width:100%">
+      <button class="btn btn-primary btn-full" type="submit" id="auth-btn">Accedi</button>
+      <div id="auth-err" class="msg msg-err" style="display:none;margin-top:.5rem"></div>
+    </form>
   </div>
 </div>
 
-<!-- ══════════════════ APP ══════════════════ -->
-<div id="app" class="hidden">
+<div id="app" style="display:none">
+  <header>
+    <h1>EvalPoli</h1>
+    <span class="header-meta" id="course-name-display"></span>
+    <button class="btn btn-ghost btn-sm privacy-btn" id="privacy-btn" title="Nascondi voti agli studenti">👁 Privato</button>
+  </header>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showTab('setup')">Setup</button>
+    <button class="nav-tab" onclick="showTab('sessioni')">Sessioni</button>
+    <button class="nav-tab" onclick="showTab('valuta')">Valuta</button>
+    <button class="nav-tab" onclick="showTab('risultati')">Risultati</button>
+  </div>
 
-  <div id="hdr">
-    <h1 id="hdr-title">EvalPoli</h1>
-    <div id="hdr-right">
-      <span class="sync-dot" id="sync-dot" title="Sincronizzazione"></span>
-      <button class="btn-icon" style="color:#fff" onclick="openModal('mo-pw')" title="Cambia password">🔑</button>
-      <button class="btn-icon" style="color:#fff" onclick="doLogout()" title="Esci">🚪</button>
+  <!-- ═══ SETUP ═══ -->
+  <div id="tab-setup" class="tab-content">
+
+    <div class="card">
+      <div class="card-title">Corso</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nome corso</label>
+          <input type="text" id="course-name-inp" placeholder="es. Design del Prodotto" oninput="debouncedSaveCourse()">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Aree di valutazione</div>
+      <div id="areas-list"></div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:.3rem" onclick="addArea()">+ Area</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Pesi valutatori</div>
+      <div class="row2">
+        <div class="form-group"><label>Professore</label><input type="number" id="w-prof" min="0" step="1" onchange="saveWeights()"></div>
+        <div class="form-group"><label>Assistente</label><input type="number" id="w-asst" min="0" step="1" onchange="saveWeights()"></div>
+      </div>
+      <div class="row2" style="margin-top:.4rem">
+        <div class="form-group"><label>Azienda</label><input type="number" id="w-rep" min="0" step="1" onchange="saveWeights()"></div>
+        <div class="form-group"><label>Voto max</label><input type="number" id="score-max" min="1" step="1" onchange="saveWeights()"></div>
+      </div>
+    </div>
+
+    <!-- Prove (exam tabs) -->
+    <div class="card">
+      <div class="card-title">Prove d'esame</div>
+      <div id="exams-setup-list"></div>
+      <div class="form-row" style="margin-top:.5rem">
+        <div class="form-group">
+          <input type="text" id="new-exam-name" placeholder="Nome prova (es. Seconda Prova)">
+        </div>
+        <button class="btn btn-primary" onclick="addExam()">+ Prova</button>
+      </div>
+    </div>
+
+    <!-- Import -->
+    <div class="card">
+      <div class="card-title">Importa partecipanti (Excel)</div>
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:.75rem">
+        Colonne riconosciute: <b>nome</b> (studenti), <b>brief</b>, <b>codice persona</b>, <b>drive</b>,
+        <b>professore</b>, <b>assistente</b>, <b>azienda</b>. Prima riga = intestazione.
+      </p>
+      <input type="file" id="xlsx-file" accept=".xlsx,.xls" onchange="handleXlsx(this)">
+      <div id="import-preview" style="margin-top:.75rem"></div>
+    </div>
+
+    <!-- Manual add -->
+    <div class="card">
+      <div class="card-title">Aggiungi manuale</div>
+
+      <b style="font-size:.82rem">Studenti</b>
+      <div class="form-row" style="margin-top:.4rem">
+        <div class="form-group"><label>Nome</label><input type="text" id="new-st-name" placeholder="Nome studente"></div>
+        <div class="form-group"><label>Codice Persona</label><input type="text" id="new-st-code" placeholder="000000"></div>
+        <div class="form-group"><label>Brief/Gruppo</label><input type="text" id="new-st-brief" placeholder="A"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="addPerson('students')">+ Studente</button>
+      <ul class="person-list" id="students-list" style="margin-top:.6rem"></ul>
+
+      <hr class="section">
+      <b style="font-size:.82rem">Professori</b>
+      <div class="form-row" style="margin-top:.4rem">
+        <div class="form-group"><input type="text" id="new-professors-name" placeholder="Nome professore"></div>
+        <button class="btn btn-primary btn-sm" onclick="addPerson('professors')" style="white-space:nowrap">+ Prof</button>
+      </div>
+      <ul class="person-list" id="professors-list" style="margin-top:.6rem"></ul>
+
+      <hr class="section">
+      <b style="font-size:.82rem">Assistenti</b>
+      <div class="form-row" style="margin-top:.4rem">
+        <div class="form-group"><input type="text" id="new-assistants-name" placeholder="Nome assistente"></div>
+        <button class="btn btn-primary btn-sm" onclick="addPerson('assistants')" style="white-space:nowrap">+ Asst</button>
+      </div>
+      <ul class="person-list" id="assistants-list" style="margin-top:.6rem"></ul>
+
+      <hr class="section">
+      <b style="font-size:.82rem">Aziende</b>
+      <div class="form-row" style="margin-top:.4rem">
+        <div class="form-group"><input type="text" id="new-companyReps-name" placeholder="Nome azienda/persona"></div>
+        <button class="btn btn-primary btn-sm" onclick="addPerson('companyReps')" style="white-space:nowrap">+ Azienda</button>
+      </div>
+      <ul class="person-list" id="companyReps-list" style="margin-top:.6rem"></ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Sicurezza</div>
+      <div class="form-row">
+        <div class="form-group"><input type="password" id="new-pw" placeholder="Nuova password"></div>
+        <button class="btn btn-ghost" onclick="changePassword()">Cambia password</button>
+      </div>
+      <div id="pw-msg"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Backup / Ripristino dati</div>
+      <div class="form-row">
+        <button class="btn btn-ghost" onclick="exportBackup()">Esporta backup JSON</button>
+        <label class="btn btn-ghost" style="cursor:pointer">
+          Importa backup JSON
+          <input type="file" accept=".json" style="display:none" onchange="importBackup(this)">
+        </label>
+      </div>
     </div>
   </div>
 
-  <nav id="nav">
-    <button class="nav-btn active" id="nb-setup" onclick="switchTab('setup')">
-      <span class="ic">⚙️</span><span>Setup</span></button>
-    <button class="nav-btn" id="nb-sessions" onclick="switchTab('sessions')">
-      <span class="ic">📋</span><span>Sessioni</span></button>
-    <button class="nav-btn" id="nb-evaluate" onclick="switchTab('evaluate')">
-      <span class="ic">✏️</span><span>Valuta</span></button>
-    <button class="nav-btn" id="nb-results" onclick="switchTab('results')">
-      <span class="ic">📊</span><span>Risultati</span></button>
-  </nav>
-
-  <div id="content">
-
-    <!-- ── SETUP TAB ───────────────────────────────────────────── -->
-    <div id="tab-setup" class="tab active">
-
-      <div class="card">
-        <div class="card-title">Corso</div>
-        <div class="fg">
-          <label>Nome del corso</label>
-          <input type="text" id="inp-course" placeholder="Es. Progettazione di Sistemi Informativi"
-            onchange="apiPatchConfig({courseName:this.value})">
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Importa partecipanti (.xlsx)</div>
-        <p class="txt-sm txt-s2 mb10">Carica un file Excel con le colonne degli studenti, professori, assistenti e rappresentanti. Le colonne vengono riconosciute automaticamente.</p>
-        <input type="file" id="inp-xlsx" accept=".xlsx,.xls" class="hidden" onchange="handleXlsx(event)">
-        <button class="btn btn-sec btn-block" onclick="$('inp-xlsx').click()">📂 Carica file Excel</button>
-        <div id="xlsx-status" class="mt10 hidden"></div>
-      </div>
-
-      <div id="col-mapper" class="card hidden">
-        <div class="card-title">Abbina colonne Excel</div>
-        <div id="col-mapper-form"></div>
-        <button class="btn btn-pri btn-block mt10" onclick="applyMapping()">Importa dati</button>
-      </div>
-
-      <!-- Students -->
-      <div class="card">
-        <div class="sec-hdr-top">
-          <div class="sec-hdr-title">🎓 Studenti</div>
-          <button class="btn btn-sm btn-sec" onclick="openAddPerson('student')">+ Aggiungi</button>
-        </div>
-        <div id="lst-students"><p class="txt-sm txt-muted">Nessuno studente aggiunto</p></div>
-      </div>
-
-      <!-- Professors -->
-      <div class="card">
-        <div class="sec-hdr-top">
-          <div class="sec-hdr-title">👨‍🏫 Professori</div>
-          <button class="btn btn-sm btn-sec" onclick="openAddPerson('professor')">+ Aggiungi</button>
-        </div>
-        <div class="frow mb10">
-          <div><label>Peso voto professori</label>
-            <input type="number" class="w70" id="w-prof" value="3" min="0" max="10" step="0.5"
-              onchange="saveWeights()"></div>
-        </div>
-        <div id="lst-professors"><p class="txt-sm txt-muted">Nessun professore aggiunto</p></div>
-      </div>
-
-      <!-- Assistants -->
-      <div class="card">
-        <div class="sec-hdr-top">
-          <div class="sec-hdr-title">🧑‍💻 Assistenti</div>
-          <button class="btn btn-sm btn-sec" onclick="openAddPerson('assistant')">+ Aggiungi</button>
-        </div>
-        <div class="frow mb10">
-          <div><label>Peso voto assistenti</label>
-            <input type="number" class="w70" id="w-asst" value="2" min="0" max="10" step="0.5"
-              onchange="saveWeights()"></div>
-        </div>
-        <div id="lst-assistants"><p class="txt-sm txt-muted">Nessun assistente aggiunto</p></div>
-      </div>
-
-      <!-- Company Reps -->
-      <div class="card">
-        <div class="sec-hdr-top">
-          <div class="sec-hdr-title">🏢 Rappresentanti Aziendali</div>
-          <button class="btn btn-sm btn-sec" onclick="openAddPerson('companyRep')">+ Aggiungi</button>
-        </div>
-        <div class="frow mb10">
-          <div><label>Peso voto rappresentanti</label>
-            <input type="number" class="w70" id="w-comp" value="1" min="0" max="10" step="0.5"
-              onchange="saveWeights()"></div>
-        </div>
-        <div id="lst-company"><p class="txt-sm txt-muted">Nessun rappresentante aggiunto</p></div>
-      </div>
-
-      <!-- Areas -->
-      <div class="card">
-        <div class="sec-hdr-top">
-          <div class="sec-hdr-title">Aree di valutazione</div>
-          <button class="btn btn-sm btn-sec" onclick="addArea()">+ Aggiungi</button>
-        </div>
-        <div id="lst-areas"></div>
-      </div>
-
-      <!-- Scale -->
-      <div class="card">
-        <div class="card-title">Scala di valutazione</div>
-        <div class="frow">
-          <div><label>Voto minimo</label>
-            <input type="number" class="w70" id="inp-smin" value="0" min="0" onchange="saveScale()"></div>
-          <div><label>Voto massimo</label>
-            <input type="number" class="w70" id="inp-smax" value="30" min="1" onchange="saveScale()"></div>
-        </div>
-      </div>
-
-      <!-- Data backup -->
-      <div class="card">
-        <div class="card-title">Backup dati</div>
-        <div class="flex gap8">
-          <button class="btn btn-sec btn-sm" onclick="exportBackup()">📥 Esporta JSON</button>
-          <button class="btn btn-sec btn-sm" onclick="$('inp-import').click()">📤 Importa JSON</button>
-          <button class="btn btn-danger btn-sm" onclick="resetData()">🗑 Reset</button>
-        </div>
-        <input type="file" id="inp-import" accept=".json" class="hidden" onchange="importBackup(event)">
+  <!-- ═══ SESSIONI ═══ -->
+  <div id="tab-sessioni" class="tab-content" style="display:none">
+    <div class="card">
+      <div class="card-title">Aggiungi sessione</div>
+      <div class="form-row">
+        <div class="form-group"><input type="text" id="new-session-name" placeholder="es. Aula 1"></div>
+        <button class="btn btn-primary" onclick="addSession()">+ Sessione</button>
       </div>
     </div>
-
-    <!-- ── SESSIONS TAB ─────────────────────────────────────────── -->
-    <div id="tab-sessions" class="tab">
-      <div class="card">
-        <div class="sec-hdr-top">
-          <div class="sec-hdr-title">Sessioni parallele</div>
-          <button class="btn btn-sm btn-pri" onclick="openAddSession()">+ Nuova</button>
-        </div>
-        <p class="txt-sm txt-s2 mb12">Crea commissioni parallele. Se non hai sessioni parallele, puoi ignorare questa sezione e tutti gli studenti saranno visibili a tutti i valutatori.</p>
-        <div id="lst-sessions"><p class="txt-sm txt-muted">Nessuna sessione creata.</p></div>
+    <div class="card">
+      <div class="card-title">Distribuisci studenti</div>
+      <div class="form-row">
+        <select id="divide-method">
+          <option value="alternating">Alternato (A,B,A,B…)</option>
+          <option value="half">Metà-metà</option>
+          <option value="brief">Per brief/gruppo</option>
+        </select>
+        <button class="btn btn-primary" onclick="divideStudents()">Distribuisci</button>
       </div>
     </div>
-
-    <!-- ── EVALUATE TAB ─────────────────────────────────────────── -->
-    <div id="tab-evaluate" class="tab">
-      <div class="card">
-        <div class="fg">
-          <label>Sessione</label>
-          <select id="sel-sess-ev" onchange="renderEval()">
-            <option value="all">Tutti gli studenti</option>
-          </select>
-        </div>
-        <div class="fg" style="margin-bottom:0">
-          <label>Chi sta valutando?</label>
-          <select id="sel-eval" onchange="renderEval()">
-            <option value="">— Seleziona valutatore —</option>
-          </select>
-        </div>
-      </div>
-      <div id="eval-content">
-        <div class="card"><p class="txt-sm txt-muted">Seleziona un valutatore per iniziare.</p></div>
-      </div>
-    </div>
-
-    <!-- ── RESULTS TAB ──────────────────────────────────────────── -->
-    <div id="tab-results" class="tab">
-      <div class="card">
-        <div class="flex-b mb10">
-          <div class="sec-hdr-title">Risultati</div>
-          <div class="flex gap8">
-            <select id="sel-sess-res" onchange="renderResults()" style="font-size:13px">
-              <option value="all">Tutte</option>
-            </select>
-            <button class="btn btn-sec btn-sm" onclick="exportXlsx()">📥 Excel</button>
-          </div>
-        </div>
-        <div id="results-content"><p class="txt-sm txt-muted">Nessun dato.</p></div>
-      </div>
-    </div>
-
-  </div><!-- /content -->
-</div><!-- /app -->
-
-<!-- ══════════════════ MODALS ══════════════════ -->
-
-<!-- Add person -->
-<div class="mo" id="mo-person">
-  <div class="mo-inner">
-    <div class="mo-title" id="mo-person-title">Aggiungi</div>
-    <input type="hidden" id="mo-person-type">
-    <div class="fg"><label>Nome</label>
-      <input type="text" id="mo-person-name" placeholder="Nome e Cognome">
-    </div>
-    <div id="mo-student-extra" class="hidden">
-      <div class="fg"><label>Brief / Gruppo (opzionale)</label>
-        <input type="text" id="mo-person-brief" placeholder="Es. Gruppo A / Progetto XYZ">
-      </div>
-    </div>
-    <div class="mo-actions">
-      <button class="btn btn-sec" style="flex:1" onclick="closeModal('mo-person')">Annulla</button>
-      <button class="btn btn-pri" style="flex:1" onclick="savePerson()">Aggiungi</button>
-    </div>
+    <div id="sessions-list"></div>
   </div>
-</div>
 
-<!-- Add / edit session -->
-<div class="mo" id="mo-session">
-  <div class="mo-inner">
-    <div class="mo-title" id="mo-sess-title">Nuova sessione</div>
-    <div class="fg"><label>Nome commissione</label>
-      <input type="text" id="mo-sess-name" placeholder="Es. Commissione A">
+  <!-- ═══ VALUTA ═══ -->
+  <div id="tab-valuta" class="tab-content" style="display:none">
+    <div class="exam-strip" id="valuta-exam-strip"></div>
+    <div class="toolbar">
+      <select id="evaluator-select" style="flex:1;min-width:160px" onchange="renderValuta()">
+        <option value="">-- Seleziona valutatore --</option>
+      </select>
+      <div class="search-bar">
+        <input type="text" id="student-search" placeholder="Cerca studente…" oninput="renderValuta()">
+      </div>
     </div>
-    <div class="fg">
-      <label>Professori</label>
-      <div id="mo-sess-profs" class="txt-sm txt-muted">—</div>
-    </div>
-    <div class="fg">
-      <label>Assistenti</label>
-      <div id="mo-sess-assts" class="txt-sm txt-muted">—</div>
-    </div>
-    <div class="fg">
-      <label>Rappresentanti aziendali</label>
-      <div id="mo-sess-comps" class="txt-sm txt-muted">—</div>
-    </div>
-    <input type="hidden" id="mo-sess-id">
-    <div class="mo-actions">
-      <button class="btn btn-sec" style="flex:1" onclick="closeModal('mo-session')">Annulla</button>
-      <button class="btn btn-pri" style="flex:1" onclick="saveSession()">Salva</button>
-    </div>
+    <div id="valuta-list"></div>
   </div>
-</div>
 
-<!-- Divide students -->
-<div class="mo" id="mo-divide">
-  <div class="mo-inner">
-    <div class="mo-title">Dividi studenti tra sessioni</div>
-    <p class="txt-sm txt-s2 mb12">Come vuoi distribuire gli studenti?</p>
-    <label class="radio-card">
-      <input type="radio" name="div-method" value="alternating" checked>
-      <div><div class="rc-title">Alternati</div>
-        <div class="rc-sub">1→A, 2→B, 3→A, 4→B, …</div></div>
-    </label>
-    <label class="radio-card">
-      <input type="radio" name="div-method" value="half">
-      <div><div class="rc-title">Prima metà / Seconda metà</div>
-        <div class="rc-sub">Primi 50% → Sessione A, restanti → Sessione B, …</div></div>
-    </label>
-    <div class="mo-actions">
-      <button class="btn btn-sec" style="flex:1" onclick="closeModal('mo-divide')">Annulla</button>
-      <button class="btn btn-pri" style="flex:1" onclick="doDivide()">Dividi</button>
+  <!-- ═══ RISULTATI ═══ -->
+  <div id="tab-risultati" class="tab-content" style="display:none">
+    <div class="exam-strip" id="risultati-exam-strip"></div>
+    <div class="toolbar">
+      <button class="btn btn-primary btn-sm" onclick="exportExcel()">Esporta Excel</button>
+      <a id="drive-link-btn" href="#" target="_blank" class="btn btn-ghost btn-sm" style="display:none">Apri OneDrive</a>
     </div>
-  </div>
-</div>
-
-<!-- Change password -->
-<div class="mo" id="mo-pw">
-  <div class="mo-inner">
-    <div class="mo-title">Cambia password</div>
-    <div class="fg"><label>Nuova password</label>
-      <input type="password" id="mo-pw1" placeholder="Minimo 4 caratteri">
-    </div>
-    <div class="fg"><label>Conferma</label>
-      <input type="password" id="mo-pw2" placeholder="Ripeti la password">
-    </div>
-    <div id="mo-pw-err" class="alert alert-err hidden"></div>
-    <div class="mo-actions">
-      <button class="btn btn-sec" style="flex:1" onclick="closeModal('mo-pw')">Annulla</button>
-      <button class="btn btn-pri" style="flex:1" onclick="changePassword()">Salva</button>
-    </div>
+    <div id="risultati-content"></div>
   </div>
 </div>
 
 <script>
-// ══════════════════════════════════════════════════════════
-// GLOBALS & HELPERS
-// ══════════════════════════════════════════════════════════
-const $ = id => document.getElementById(id);
-const esc = s => s == null ? '' : String(s)
-  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+'use strict';
 
-let S = {}; // local state mirror
-let token = sessionStorage.getItem('ep_token') || '';
+// ══════════════════════════════════════════════
+// State
+// ══════════════════════════════════════════════
+let S = { config:{areas:[],weights:{professor:3,assistant:2,companyRep:1},scoreMax:30}, sessions:[], students:[], professors:[], assistants:[], companyReps:[], exams:[] };
+let token = sessionStorage.getItem('evalpoli_token') || '';
 let currentTab = 'setup';
-let xlsxData = null, xlsxHeaders = [];
+let activeExamId = null;
+let privacyMode = false;
 
-// ── Sync indicator ─────────────────────────────────────────
-const dot = $('sync-dot');
-function setSaving(){ dot.className='sync-dot saving'; dot.title='Salvataggio...' }
-function setSaved(){ dot.className='sync-dot'; dot.title='Sincronizzato' }
-function setSaveErr(){ dot.className='sync-dot err'; dot.title='Errore di salvataggio' }
+const BRIEF_COLORS = ['brief-color-0','brief-color-1','brief-color-2','brief-color-3','brief-color-4','brief-color-5','brief-color-6','brief-color-7','brief-color-8','brief-color-9'];
+const briefColorMap = {};
+function briefColorClass(brief) {
+  if (!brief) return '';
+  if (!briefColorMap[brief]) {
+    const keys = Object.keys(briefColorMap);
+    briefColorMap[brief] = BRIEF_COLORS[keys.length % BRIEF_COLORS.length];
+  }
+  return briefColorMap[brief];
+}
 
-// ── API ────────────────────────────────────────────────────
+function getActiveExam() {
+  if (!S.exams || S.exams.length === 0) return null;
+  return S.exams.find(e => e.id === activeExamId) || S.exams[0];
+}
+function getActiveEvals() { return (getActiveExam() || {evaluations:[]}).evaluations || []; }
+
+// ══════════════════════════════════════════════
+// Auth / API
+// ══════════════════════════════════════════════
 async function api(method, path, body) {
-  setSaving();
-  try {
-    const r = await fetch(path, {
-      method, headers: { 'Content-Type':'application/json', 'x-token': token },
-      body: body != null ? JSON.stringify(body) : undefined
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || r.status);
-    setSaved();
-    return data;
-  } catch(e) {
-    setSaveErr();
-    throw e;
-  }
+  const opts = { method, headers: { 'Content-Type':'application/json', 'x-token': token } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
 }
 
-// ── Debounce ───────────────────────────────────────────────
-function debounce(fn, ms) {
-  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
-}
+async function init() {
+  const status = await api('GET', '/api/status');
+  const subtitle = document.getElementById('auth-subtitle');
+  const form = document.getElementById('auth-form');
+  const btn  = document.getElementById('auth-btn');
+  const err  = document.getElementById('auth-err');
 
-// ══════════════════════════════════════════════════════════
-// SOCKET.IO – REAL-TIME SYNC
-// ══════════════════════════════════════════════════════════
-let socket;
-function initSocket() {
-  socket = io();
-  socket.on('state', newState => {
-    const editing = document.activeElement &&
-      (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
-    S = newState;
-    if (currentTab === 'evaluate' && editing) {
-      refreshGradePreviews();
-    } else {
-      applyStateToUI();
-    }
-  });
-  socket.on('connect', () => setSaved());
-  socket.on('disconnect', () => setSaveErr());
-}
+  subtitle.textContent = status.hasPassword ? 'Accedi con la password' : 'Prima configurazione: scegli una password';
+  btn.textContent = status.hasPassword ? 'Accedi' : 'Imposta password';
+  form.style.display = '';
 
-// ══════════════════════════════════════════════════════════
-// AUTH
-// ══════════════════════════════════════════════════════════
-async function initAuth() {
-  const { hasPassword } = await fetch('/api/status').then(r => r.json());
-  if (!hasPassword) {
-    $('frm-login').classList.add('hidden');
-    $('frm-setup').classList.remove('hidden');
-    return;
-  }
-  if (token) {
-    try { await loadState(); showApp(); return; } catch(e) { token = ''; sessionStorage.removeItem('ep_token'); }
-  }
-}
-
-async function doLogin() {
-  const pw = $('inp-pw').value;
-  try {
-    const { token: t } = await api('POST','/api/login',{ password: pw });
-    token = t; sessionStorage.setItem('ep_token', t);
-    await loadState(); showApp();
-  } catch(e) {
-    $('login-err').classList.remove('hidden');
-    $('inp-pw').value = '';
-  }
-}
-
-async function doSetup() {
-  const pw1 = $('inp-pw1').value, pw2 = $('inp-pw2').value;
-  const err = $('setup-err');
-  if (pw1.length < 4) { err.textContent='Min 4 caratteri'; err.classList.remove('hidden'); return; }
-  if (pw1 !== pw2) { err.textContent='Le password non coincidono'; err.classList.remove('hidden'); return; }
-  const { token: t } = await api('POST','/api/setup',{ password: pw1 });
-  token = t; sessionStorage.setItem('ep_token', t);
-  await loadState(); showApp();
-}
-
-function doLogout() {
-  if (!confirm('Uscire? I dati sono salvati automaticamente.')) return;
-  sessionStorage.removeItem('ep_token');
-  token = '';
-  $('app').classList.add('hidden');
-  $('login-screen').classList.remove('hidden');
-  $('inp-pw').value = '';
-  $('login-err').classList.add('hidden');
-}
-
-async function changePassword() {
-  const pw1 = $('mo-pw1').value, pw2 = $('mo-pw2').value;
-  const err = $('mo-pw-err');
-  if (pw1.length < 4) { err.textContent='Min 4 caratteri'; err.classList.remove('hidden'); return; }
-  if (pw1 !== pw2) { err.textContent='Non coincidono'; err.classList.remove('hidden'); return; }
-  const { token: t } = await api('PUT','/api/password',{ password: pw1 });
-  token = t; sessionStorage.setItem('ep_token', t);
-  closeModal('mo-pw');
-  $('mo-pw1').value=''; $('mo-pw2').value=''; $('mo-pw-err').classList.add('hidden');
-  alert('Password aggiornata.');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    err.style.display = 'none';
+    const pw = document.getElementById('pw-input').value;
+    try {
+      const res = status.hasPassword
+        ? await api('POST', '/api/login', { password: pw })
+        : await api('POST', '/api/setup', { password: pw });
+      token = res.token;
+      sessionStorage.setItem('evalpoli_token', token);
+      await loadState();
+      document.getElementById('auth-overlay').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+    } catch(ex) { err.textContent = ex.message; err.style.display = ''; }
+  };
 }
 
 async function loadState() {
   S = await api('GET', '/api/state');
+  if (!activeExamId && S.exams && S.exams.length) activeExamId = S.exams[0].id;
+  rebuildBriefColors();
+  render();
 }
 
-function showApp() {
-  $('login-screen').classList.add('hidden');
-  $('app').classList.remove('hidden');
-  initSocket();
-  applyStateToUI();
+function rebuildBriefColors() {
+  Object.keys(briefColorMap).forEach(k => delete briefColorMap[k]);
+  [...new Set((S.students||[]).map(s=>s.brief).filter(Boolean))].forEach(b => briefColorClass(b));
 }
 
-// ══════════════════════════════════════════════════════════
-// STATE → UI
-// ══════════════════════════════════════════════════════════
-function applyStateToUI() {
-  const cfg = S.config || {};
-  $('inp-course').value = cfg.courseName || '';
-  $('hdr-title').textContent = cfg.courseName || 'EvalPoli';
-  $('w-prof').value = cfg.weights?.professor ?? 3;
-  $('w-asst').value = cfg.weights?.assistant ?? 2;
-  $('w-comp').value = cfg.weights?.companyRep ?? 1;
-  $('inp-smin').value = cfg.scoreMin ?? 0;
-  $('inp-smax').value = cfg.scoreMax ?? 30;
+const socket = io();
+socket.on('state', ns => {
+  const wasEditing = document.activeElement && ['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
+  S = ns;
+  if (!activeExamId && S.exams && S.exams.length) activeExamId = S.exams[0].id;
+  rebuildBriefColors();
+  if (wasEditing) {
+    renderExamStrips();
+    updateAllGradePreviews();
+  } else {
+    render();
+  }
+});
 
-  renderPersonList('students',   'lst-students',  'student');
-  renderPersonList('professors', 'lst-professors', 'professor');
-  renderPersonList('assistants', 'lst-assistants', 'assistant');
-  renderPersonList('companyReps','lst-company',   'companyRep');
-  renderAreas();
-  renderSessionsList();
-  populateSelects();
-
-  if (currentTab === 'evaluate') renderEval();
-  if (currentTab === 'results')  renderResults();
+// ══════════════════════════════════════════════
+// Tab routing
+// ══════════════════════════════════════════════
+function showTab(t) {
+  currentTab = t;
+  document.querySelectorAll('.nav-tab').forEach((el,i) => {
+    el.classList.toggle('active', ['setup','sessioni','valuta','risultati'][i] === t);
+  });
+  ['setup','sessioni','valuta','risultati'].forEach(id =>
+    document.getElementById(`tab-${id}`).style.display = id === t ? '' : 'none');
+  render();
 }
 
-// ══════════════════════════════════════════════════════════
-// TABS
-// ══════════════════════════════════════════════════════════
-function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  $('tab-' + tab).classList.add('active');
-  $('nb-' + tab).classList.add('active');
-  currentTab = tab;
-  if (tab === 'evaluate') renderEval();
-  if (tab === 'results')  renderResults();
+function render() {
+  document.getElementById('course-name-display').textContent = S.config?.courseName || '';
+  if (currentTab === 'setup')     renderSetup();
+  if (currentTab === 'sessioni')  renderSessioni();
+  if (currentTab === 'valuta')    renderValuta();
+  if (currentTab === 'risultati') renderRisultati();
 }
 
-// ══════════════════════════════════════════════════════════
-// CONFIG
-// ══════════════════════════════════════════════════════════
-async function apiPatchConfig(patch) {
-  await api('PUT', '/api/config', patch);
-  if (patch.courseName !== undefined) $('hdr-title').textContent = patch.courseName || 'EvalPoli';
+// ══════════════════════════════════════════════
+// Setup
+// ══════════════════════════════════════════════
+let courseSaveTimer;
+function debouncedSaveCourse() {
+  clearTimeout(courseSaveTimer);
+  courseSaveTimer = setTimeout(() => api('PUT','/api/config',{courseName:document.getElementById('course-name-inp').value}), 600);
 }
 
 function saveWeights() {
-  apiPatchConfig({
+  api('PUT','/api/config',{
     weights: {
-      professor: parseFloat($('w-prof').value) || 3,
-      assistant: parseFloat($('w-asst').value) || 2,
-      companyRep: parseFloat($('w-comp').value) || 1
-    }
+      professor: +document.getElementById('w-prof').value,
+      assistant: +document.getElementById('w-asst').value,
+      companyRep: +document.getElementById('w-rep').value
+    },
+    scoreMax: +document.getElementById('score-max').value
   });
 }
 
-function saveScale() {
-  apiPatchConfig({ scoreMin: +$('inp-smin').value, scoreMax: +$('inp-smax').value });
+function renderSetup() {
+  // Course
+  const cnInp = document.getElementById('course-name-inp');
+  if (document.activeElement !== cnInp) cnInp.value = S.config?.courseName || '';
+  // Weights
+  document.getElementById('w-prof').value = S.config?.weights?.professor ?? 3;
+  document.getElementById('w-asst').value = S.config?.weights?.assistant ?? 2;
+  document.getElementById('w-rep').value  = S.config?.weights?.companyRep ?? 1;
+  document.getElementById('score-max').value = S.config?.scoreMax ?? 30;
+  renderAreasList();
+  renderExamsList();
+  renderPeopleList('students');
+  renderPeopleList('professors');
+  renderPeopleList('assistants');
+  renderPeopleList('companyReps');
 }
 
-// ══════════════════════════════════════════════════════════
-// AREAS
-// ══════════════════════════════════════════════════════════
-function renderAreas() {
-  const el = $('lst-areas');
-  const areas = S.config?.areas || [];
-  el.innerHTML = areas.map((a, i) => `
-    <div class="li">
-      <input type="text" value="${esc(a.name)}"
-        style="flex:1;border:none;background:transparent;font-size:14px;padding:0"
-        onchange="updateAreaName(${i},this.value)" placeholder="Nome area">
-      <button class="btn-icon" onclick="removeArea(${i})">🗑</button>
-    </div>
-  `).join('') || '<p class="txt-sm txt-muted">Nessuna area</p>';
+function renderAreasList() {
+  const div = document.getElementById('areas-list');
+  div.innerHTML = '';
+  (S.config?.areas || []).forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'form-row'; row.style.marginBottom = '.4rem';
+    row.innerHTML = `
+      <div class="form-group">
+        <input type="text" value="${esc(a.name)}" onchange="renameArea('${a.id}',this.value)">
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="deleteArea('${a.id}')">✕</button>`;
+    div.appendChild(row);
+  });
 }
 
-async function addArea() {
-  const areas = [...(S.config?.areas || []), { id: 'a' + Date.now(), name: 'Nuova area' }];
-  await apiPatchConfig({ areas });
+function addArea() {
+  const areas = [...(S.config?.areas || []), { id:'area_'+Date.now(), name:'Nuova area' }];
+  api('PUT','/api/config',{ areas });
+}
+function renameArea(id, name) {
+  const areas = (S.config?.areas||[]).map(a => a.id===id ? {...a,name} : a);
+  api('PUT','/api/config',{ areas });
+}
+function deleteArea(id) {
+  const areas = (S.config?.areas||[]).filter(a => a.id!==id);
+  api('PUT','/api/config',{ areas });
 }
 
-function updateAreaName(i, name) {
-  const areas = [...(S.config?.areas || [])];
-  areas[i] = { ...areas[i], name };
-  apiPatchConfig({ areas });
+// ── Exams in Setup ───────────────────────────
+function renderExamsList() {
+  const div = document.getElementById('exams-setup-list');
+  div.innerHTML = '';
+  (S.exams || []).forEach(ex => {
+    const row = document.createElement('div');
+    row.style.cssText = 'background:var(--bg);border-radius:8px;padding:.6rem .8rem;margin-bottom:.5rem;border:1px solid var(--border)';
+    row.innerHTML = `
+      <div class="form-row" style="align-items:flex-end">
+        <div class="form-group">
+          <label>Nome</label>
+          <input type="text" value="${esc(ex.name)}" onchange="api('PUT','/api/exams/${ex.id}',{name:this.value})">
+        </div>
+        <div class="form-group">
+          <label>Link cartella OneDrive</label>
+          <input type="url" value="${esc(ex.driveUrl||'')}" placeholder="https://…" onchange="api('PUT','/api/exams/${ex.id}',{driveUrl:this.value})">
+        </div>
+        ${(S.exams||[]).length > 1 ? `<button class="btn btn-danger btn-sm" style="margin-bottom:0" onclick="deleteExam('${ex.id}')">✕</button>` : ''}
+      </div>`;
+    div.appendChild(row);
+  });
 }
 
-async function removeArea(i) {
-  const areas = S.config?.areas || [];
-  if (areas.length <= 1) { alert('Almeno un\'area è richiesta.'); return; }
-  const newAreas = areas.filter((_, j) => j !== i);
-  await apiPatchConfig({ areas: newAreas });
+function addExam() {
+  const name = (document.getElementById('new-exam-name').value.trim()) || 'Nuova Prova';
+  api('POST','/api/exams',{ name }).then(() => { document.getElementById('new-exam-name').value = ''; });
+}
+function deleteExam(id) {
+  if (!confirm('Eliminare questa prova e tutti i voti associati?')) return;
+  api('DELETE',`/api/exams/${id}`);
 }
 
-// ══════════════════════════════════════════════════════════
-// PERSONS
-// ══════════════════════════════════════════════════════════
-const personKeys = {
-  student:    { key: 'students',   label: 'Studente' },
-  professor:  { key: 'professors', label: 'Professore' },
-  assistant:  { key: 'assistants', label: 'Assistente' },
-  companyRep: { key: 'companyReps',label: 'Rappresentante' }
-};
-
-function renderPersonList(stateKey, elId, type) {
-  const el = $(elId);
-  const people = S[stateKey] || [];
-  if (!people.length) { el.innerHTML = `<p class="txt-sm txt-muted">Nessuno aggiunto</p>`; return; }
-  el.innerHTML = people.map(p => `
-    <div class="li">
-      <span class="li-name">${esc(p.name)}${p.brief ? ` <span class="txt-muted" style="font-size:12px">— ${esc(p.brief)}</span>` : ''}</span>
-      <button class="btn-icon" onclick="removePerson('${type}','${p.id}')">🗑</button>
-    </div>
-  `).join('');
+// ── People lists ─────────────────────────────
+function renderPeopleList(key) {
+  const ul = document.getElementById(`${key}-list`);
+  if (!ul) return;
+  ul.innerHTML = '';
+  (S[key] || []).forEach(p => {
+    const li = document.createElement('li');
+    li.className = 'person-item';
+    let extras = '';
+    if (key === 'students') {
+      if (p.codicePersona) extras += ` <span class="codice">${esc(p.codicePersona)}</span>`;
+      if (p.brief) extras += ` <span class="tag">${esc(p.brief)}</span>`;
+    }
+    li.innerHTML = `<span class="pname">${esc(p.name)}${extras}</span>
+      <button class="btn btn-danger btn-sm" onclick="deletePerson('${key}','${p.id}')">✕</button>`;
+    ul.appendChild(li);
+  });
 }
 
-function openAddPerson(type) {
-  $('mo-person-type').value = type;
-  $('mo-person-name').value = '';
-  $('mo-person-brief').value = '';
-  $('mo-person-title').textContent = 'Aggiungi ' + personKeys[type].label;
-  $('mo-student-extra').classList.toggle('hidden', type !== 'student');
-  openModal('mo-person');
-  setTimeout(() => $('mo-person-name').focus(), 120);
+function addPerson(key) {
+  const nameEl = document.getElementById(`new-${key}-name`);
+  const name = nameEl?.value.trim();
+  if (!name) return;
+  const payload = { name };
+  if (key === 'students') {
+    payload.codicePersona = document.getElementById('new-st-code')?.value.trim() || '';
+    payload.brief = document.getElementById('new-st-brief')?.value.trim() || '';
+    payload.driveUrl = '';
+    document.getElementById('new-st-code').value = '';
+    document.getElementById('new-st-brief').value = '';
+  }
+  api('POST', `/api/${key}`, payload).then(() => { if (nameEl) nameEl.value = ''; });
 }
 
-async function savePerson() {
-  const type = $('mo-person-type').value;
-  const name = $('mo-person-name').value.trim();
-  if (!name) { alert('Inserisci un nome'); return; }
-  const body = { name };
-  if (type === 'student') body.brief = $('mo-person-brief').value.trim();
-  await api('POST', `/api/${personKeys[type].key}`, body);
-  closeModal('mo-person');
+function deletePerson(key, id) {
+  api('DELETE', `/api/${key}/${id}`);
 }
 
-async function removePerson(type, id) {
-  if (!confirm('Rimuovere questa persona? Le sue valutazioni verranno eliminate.')) return;
-  await api('DELETE', `/api/${personKeys[type].key}/${id}`);
-}
-
-// ══════════════════════════════════════════════════════════
-// XLSX IMPORT
-// ══════════════════════════════════════════════════════════
-function handleXlsx(event) {
-  const file = event.target.files[0]; if (!file) return;
+// ══════════════════════════════════════════════
+// Excel import
+// ══════════════════════════════════════════════
+function handleXlsx(inp) {
+  const file = inp.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      if (rows.length < 2) { xlsxStatus('err','File vuoto o senza intestazioni.'); return; }
-      xlsxHeaders = rows[0].map(h => String(h).trim());
-      xlsxData = rows.slice(1).filter(r => r.some(c => c !== ''));
-      xlsxStatus('info', `File caricato: ${xlsxData.length} righe, ${xlsxHeaders.length} colonne.`);
-      showMapper();
-    } catch(err) { xlsxStatus('err', 'Errore lettura: ' + err.message); }
+    const wb = XLSX.read(e.target.result, { type:'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+    if (!rows.length) { document.getElementById('import-preview').innerHTML='<div class="msg msg-err">Nessuna riga trovata.</div>'; return; }
+
+    const norm = s => String(s||'').toLowerCase().trim().replace(/\s+/g,' ');
+    const keys = Object.keys(rows[0]);
+    const findCol = (...cands) => keys.find(k => cands.some(c => norm(k).includes(c))) || null;
+
+    const colNome   = findCol('nome','name','studente');
+    const colBrief  = findCol('brief','gruppo','group');
+    const colCodice = findCol('codice','matricola','persona','student id');
+    const colDrive  = findCol('drive','onedrive','link');
+    const colProf   = findCol('professore','professor','prof');
+    const colAsst   = findCol('assistente','assistant','asst','tutor');
+    const colRep    = findCol('azienda','company','rep','external');
+
+    const students=[],professors=[],assistants=[],companyReps=[];
+    rows.forEach(row => {
+      if (colNome && String(row[colNome]||'').trim()) {
+        students.push({
+          id: 'p_'+Math.random().toString(36).slice(2),
+          name: String(row[colNome]).trim(),
+          brief: colBrief  ? String(row[colBrief]||'').trim()  : '',
+          codicePersona: colCodice ? String(row[colCodice]||'').trim() : '',
+          driveUrl: colDrive  ? String(row[colDrive]||'').trim()  : ''
+        });
+      }
+      if (colProf && String(row[colProf]||'').trim()) professors.push({ id:'p_'+Math.random().toString(36).slice(2), name:String(row[colProf]).trim() });
+      if (colAsst && String(row[colAsst]||'').trim()) assistants.push({ id:'p_'+Math.random().toString(36).slice(2), name:String(row[colAsst]).trim() });
+      if (colRep  && String(row[colRep]||'').trim())  companyReps.push({ id:'p_'+Math.random().toString(36).slice(2), name:String(row[colRep]).trim() });
+    });
+
+    const dedup = arr => arr.filter((v,i,a) => a.findIndex(x=>x.name.toLowerCase()===v.name.toLowerCase())===i);
+    window._importData = { students, professors:dedup(professors), assistants:dedup(assistants), companyReps:dedup(companyReps) };
+
+    document.getElementById('import-preview').innerHTML = `<div class="msg msg-ok">
+      Trovati: ${students.length} studenti, ${dedup(professors).length} prof, ${dedup(assistants).length} asst, ${dedup(companyReps).length} aziende.
+      <br><button class="btn btn-primary btn-sm" style="margin-top:.4rem" onclick="confirmImport(window._importData)">Importa</button>
+    </div>`;
   };
   reader.readAsArrayBuffer(file);
-  event.target.value = '';
 }
 
-function xlsxStatus(type, msg) {
-  const el = $('xlsx-status');
-  el.innerHTML = `<div class="alert alert-${type==='err'?'err':type==='ok'?'ok':'info'}">${msg}</div>`;
-  el.classList.remove('hidden');
-}
-
-function autoDetect(keywords) {
-  const i = xlsxHeaders.findIndex(h => keywords.some(k => h.toLowerCase().includes(k)));
-  return i >= 0 ? String(i) : '';
-}
-
-function showMapper() {
-  const opts = `<option value="">— nessuna —</option>` +
-    xlsxHeaders.map((h,i) => `<option value="${i}">${esc(h)}</option>`).join('');
-  const row = (id, lbl, det) => `
-    <div class="fg"><label>${lbl}</label>
-      <select id="${id}">${opts}</select></div>`;
-  $('col-mapper-form').innerHTML =
-    row('mp-st','🎓 Studenti *') +
-    row('mp-br','📁 Brief / Gruppo (opz.)') +
-    row('mp-pr','👨‍🏫 Professori (opz.)') +
-    row('mp-as','🧑‍💻 Assistenti (opz.)') +
-    row('mp-co','🏢 Rappresentanti aziendali (opz.)') +
-    `<label class="cb-row"><input type="checkbox" id="mp-rep" checked> Sostituisci dati esistenti</label>`;
-  const set = (id, val) => { if (val !== '') $(id).value = val; };
-  set('mp-st', autoDetect(['student','studente','nome','candidato','alunno']));
-  set('mp-br', autoDetect(['brief','gruppo','group','team','progetto','project']));
-  set('mp-pr', autoDetect(['professor','professore','docente','prof']));
-  set('mp-as', autoDetect(['assistant','assistente','tutor']));
-  set('mp-co', autoDetect(['company','azienda','aziendale','rep','referente']));
-  $('col-mapper').classList.remove('hidden');
-}
-
-async function applyMapping() {
-  const gc = id => { const v = $(id).value; return v !== '' ? parseInt(v) : null; };
-  const stCol = gc('mp-st');
-  if (stCol === null) { alert('Seleziona la colonna Studenti'); return; }
-  const brCol = gc('mp-br'), prCol = gc('mp-pr'), asCol = gc('mp-as'), coCol = gc('mp-co');
-  const replace = $('mp-rep').checked;
-
-  const students = replace ? [] : [...(S.students||[])];
-  const professors = replace ? [] : [...(S.professors||[])];
-  const assistants = replace ? [] : [...(S.assistants||[])];
-  const companyReps = replace ? [] : [...(S.companyReps||[])];
-  const has = (arr, name) => arr.some(p => p.name.toLowerCase() === name.toLowerCase());
-
-  xlsxData.forEach((row, i) => {
-    const uid = () => `p_xl_${Date.now()}_${i}_${Math.random().toString(36).slice(2,4)}`;
-    const tryAdd = (arr, col, extra={}) => {
-      const n = col !== null ? String(row[col] || '').trim() : '';
-      if (n && !has(arr, n)) arr.push({ id: uid(), name: n, ...extra });
-    };
-    tryAdd(students, stCol, { brief: brCol !== null ? String(row[brCol]||'').trim() : '' });
-    tryAdd(professors, prCol);
-    tryAdd(assistants, asCol);
-    tryAdd(companyReps, coCol);
-  });
-
+async function confirmImport(d) {
   await Promise.all([
-    api('PUT','/api/students', students),
-    api('PUT','/api/professors', professors),
-    api('PUT','/api/assistants', assistants),
-    api('PUT','/api/companyReps', companyReps)
+    api('PUT','/api/students',  d.students),
+    api('PUT','/api/professors',d.professors),
+    api('PUT','/api/assistants',d.assistants),
+    api('PUT','/api/companyReps',d.companyReps)
   ]);
-
-  xlsxStatus('ok', `Importazione completata: ${students.length} studenti, ${professors.length} professori, ${assistants.length} assistenti, ${companyReps.length} rappresentanti.`);
-  $('col-mapper').classList.add('hidden');
-  xlsxData = null; xlsxHeaders = [];
+  document.getElementById('import-preview').innerHTML = '<div class="msg msg-ok">Importazione completata!</div>';
 }
 
-// ══════════════════════════════════════════════════════════
-// SESSIONS
-// ══════════════════════════════════════════════════════════
-function renderSessionsList() {
-  const el = $('lst-sessions');
-  const sessions = S.sessions || [];
-  if (!sessions.length) {
-    el.innerHTML = '<p class="txt-sm txt-muted">Nessuna sessione creata.</p>'; return;
-  }
-  const findName = (arr, id) => (arr||[]).find(p=>p.id===id)?.name || '?';
-  el.innerHTML = sessions.map(s => {
-    const profs = (s.professorIds||[]).map(id=>findName(S.professors,id)).join(', ');
-    const assts = (s.assistantIds||[]).map(id=>findName(S.assistants,id)).join(', ');
-    const comps = (s.companyRepIds||[]).map(id=>findName(S.companyReps,id)).join(', ');
-    const students = (s.studentIds||[]).map(id=>(S.students||[]).find(st=>st.id===id)).filter(Boolean);
-    const preview = students.slice(0,4).map(st=>esc(st.name)).join(', ');
-    return `<div class="card mb8">
-      <div class="flex-b mb8">
-        <div class="fw7" style="font-size:15px">${esc(s.name)}</div>
-        <div class="flex gap6">
-          <button class="btn btn-xs btn-sec" onclick="openAddSession('${s.id}')">✏️</button>
-          <button class="btn btn-xs btn-danger" onclick="deleteSession('${s.id}')">🗑</button>
-        </div>
-      </div>
-      <div class="txt-sm txt-s2 mb6">
-        ${profs ? `👨‍🏫 ${profs} ` : ''}${assts ? `· 🧑‍💻 ${assts} ` : ''}${comps ? `· 🏢 ${comps}` : ''}
-      </div>
-      <div class="txt-sm">👥 <strong>${students.length}</strong> studenti${preview ? ': ' + preview + (students.length>4?'…':'') : ''}</div>
-    </div>`;
-  }).join('');
-  if (sessions.length > 0 && (S.students||[]).length > 0) {
-    el.innerHTML += `<button class="btn btn-sec btn-block mt10" onclick="openModal('mo-divide')">
-      🔀 Ridividi studenti tra sessioni</button>`;
-  }
+// ══════════════════════════════════════════════
+// Password + Backup
+// ══════════════════════════════════════════════
+async function changePassword() {
+  const pw = document.getElementById('new-pw').value;
+  const msg = document.getElementById('pw-msg');
+  try {
+    const r = await api('PUT','/api/password',{ password: pw });
+    token = r.token;
+    sessionStorage.setItem('evalpoli_token', token);
+    msg.innerHTML = '<div class="msg msg-ok">Password aggiornata!</div>';
+    document.getElementById('new-pw').value = '';
+  } catch(e) { msg.innerHTML = `<div class="msg msg-err">${e.message}</div>`; }
 }
 
-function populateSelects() {
-  const sessions = S.sessions || [];
-  const makeOpts = selId => {
-    const sel = $(selId); if (!sel) return;
-    const cur = sel.value;
-    sel.innerHTML = `<option value="all">Tutti gli studenti</option>` +
-      sessions.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
-    if (cur) sel.value = cur;
+async function exportBackup() {
+  const data = await api('GET','/api/state');
+  const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download = `evalpoli-backup-${new Date().toISOString().slice(0,10)}.json`; a.click();
+}
+function importBackup(inp) {
+  const fr = new FileReader();
+  fr.onload = async e => {
+    try {
+      await api('PUT','/api/state', JSON.parse(e.target.result));
+      alert('Ripristino completato!');
+    } catch(ex) { alert('Errore: '+ex.message); }
   };
-  makeOpts('sel-sess-ev');
-  makeOpts('sel-sess-res');
-
-  const evalSel = $('sel-eval');
-  const curEval = evalSel.value;
-  const mko = (arr, type, label) => arr.length
-    ? `<optgroup label="${label}">${arr.map(p=>`<option value="${p.id}|${type}">${esc(p.name)}</option>`).join('')}</optgroup>`
-    : '';
-  evalSel.innerHTML = `<option value="">— Seleziona valutatore —</option>` +
-    mko(S.professors||[], 'professor','👨‍🏫 Professori') +
-    mko(S.assistants||[], 'assistant','🧑‍💻 Assistenti') +
-    mko(S.companyReps||[],'companyRep','🏢 Rappresentanti');
-  if (curEval) evalSel.value = curEval;
+  fr.readAsText(inp.files[0]);
 }
 
-function openAddSession(id) {
-  const mkCbs = (arr, pfx, checked=[]) => arr.length
-    ? arr.map(p=>`<label class="cb-row"><input type="checkbox" class="sess-cb sess-cb-${pfx}" value="${p.id}"${checked.includes(p.id)?' checked':''}> ${esc(p.name)}</label>`).join('')
-    : '<p class="txt-sm txt-muted">Nessuno disponibile</p>';
-  const sess = id ? (S.sessions||[]).find(s=>s.id===id) : null;
-  $('mo-sess-title').textContent = sess ? 'Modifica sessione' : 'Nuova sessione';
-  $('mo-sess-name').value = sess ? sess.name : `Commissione ${String.fromCharCode(65+(S.sessions||[]).length)}`;
-  $('mo-sess-id').value = id || '';
-  $('mo-sess-profs').innerHTML = mkCbs(S.professors||[], 'p', sess?.professorIds||[]);
-  $('mo-sess-assts').innerHTML = mkCbs(S.assistants||[], 'a', sess?.assistantIds||[]);
-  $('mo-sess-comps').innerHTML = mkCbs(S.companyReps||[],'c', sess?.companyRepIds||[]);
-  openModal('mo-session');
+// ══════════════════════════════════════════════
+// Sessioni
+// ══════════════════════════════════════════════
+async function addSession() {
+  const inp = document.getElementById('new-session-name');
+  const name = inp.value.trim() || `Sessione ${(S.sessions||[]).length+1}`;
+  await api('POST','/api/sessions',{ name });
+  inp.value = '';
 }
 
-async function saveSession() {
-  const name = $('mo-sess-name').value.trim();
-  if (!name) { alert('Inserisci un nome'); return; }
-  const getChecked = pfx => [...document.querySelectorAll(`.sess-cb-${pfx}:checked`)].map(c=>c.value);
-  const body = { name, professorIds: getChecked('p'), assistantIds: getChecked('a'), companyRepIds: getChecked('c') };
-  const id = $('mo-sess-id').value;
-  if (id) await api('PUT', `/api/sessions/${id}`, body);
-  else {
-    await api('POST', '/api/sessions', body);
-    if ((S.sessions||[]).length >= 1 && (S.students||[]).length > 0) {
-      closeModal('mo-session');
-      openModal('mo-divide');
-      return;
-    }
-  }
-  closeModal('mo-session');
+async function divideStudents() {
+  const method = document.getElementById('divide-method').value;
+  await api('POST','/api/divide',{ method });
 }
 
 async function deleteSession(id) {
-  if (!confirm('Eliminare questa sessione?')) return;
-  await api('DELETE', `/api/sessions/${id}`);
+  await api('DELETE',`/api/sessions/${id}`);
 }
 
-async function doDivide() {
-  const method = document.querySelector('input[name="div-method"]:checked')?.value || 'alternating';
-  await api('POST', '/api/divide', { method });
-  closeModal('mo-divide');
+async function addToSession(sessionId, role) {
+  const keyMap = { professor:'professorIds', assistant:'assistantIds', companyRep:'companyRepIds' };
+  const sel = document.getElementById(`sess-${role}-${sessionId}`);
+  if (!sel || !sel.value) return;
+  const sess = (S.sessions||[]).find(s => s.id === sessionId);
+  if (!sess) return;
+  const key = keyMap[role];
+  const ids = [...new Set([...(sess[key]||[]), sel.value])];
+  await api('PUT', `/api/sessions/${sessionId}`, { [key]: ids });
 }
 
-// ══════════════════════════════════════════════════════════
-// EVALUATE TAB
-// ══════════════════════════════════════════════════════════
-function getStudents(sessionId) {
-  if (sessionId === 'all' || !(S.sessions||[]).length) return S.students || [];
-  const sess = (S.sessions||[]).find(s=>s.id===sessionId);
-  return sess ? (sess.studentIds||[]).map(id=>(S.students||[]).find(s=>s.id===id)).filter(Boolean) : [];
-}
+function renderSessioni() {
+  const div = document.getElementById('sessions-list');
+  div.innerHTML = '';
+  if (!(S.sessions||[]).length) {
+    div.innerHTML = '<div class="empty">Nessuna sessione.</div>'; return;
+  }
+  S.sessions.forEach(sess => {
+    const students = (sess.studentIds||[]).map(id=>S.students?.find(s=>s.id===id)).filter(Boolean);
+    const profs    = (sess.professorIds||[]).map(id=>S.professors?.find(p=>p.id===id)).filter(Boolean);
+    const asstt    = (sess.assistantIds||[]).map(id=>S.assistants?.find(p=>p.id===id)).filter(Boolean);
+    const reps     = (sess.companyRepIds||[]).map(id=>S.companyReps?.find(p=>p.id===id)).filter(Boolean);
+    const evalStr  = [...profs.map(p=>`👨‍🏫 ${esc(p.name)}`), ...asstt.map(p=>`🎓 ${esc(p.name)}`), ...reps.map(p=>`🏢 ${esc(p.name)}`)].join('  ') || '<span style="color:var(--muted)">Nessuno</span>';
 
-function renderEval() {
-  const sessionId = $('sel-sess-ev').value;
-  const evalVal = $('sel-eval').value;
-  const cnt = $('eval-content');
-  if (!evalVal) { cnt.innerHTML='<div class="card"><p class="txt-sm txt-muted">Seleziona un valutatore per iniziare.</p></div>'; return; }
-
-  const [evaluatorId, evaluatorType] = evalVal.split('|');
-  const students = getStudents(sessionId);
-
-  if (!students.length) { cnt.innerHTML='<div class="card"><p class="txt-sm txt-muted">Nessuno studente in questa sessione.</p></div>'; return; }
-
-  const done = students.filter(s=>{
-    const ev=(S.evaluations||[]).find(e=>e.studentId===s.id&&e.evaluatorId===evaluatorId);
-    return ev && Object.keys(ev.scores||{}).length>0;
-  }).length;
-
-  cnt.innerHTML = `
-    <div class="card mb8">
-      <div class="flex-b">
-        <div><span class="fw7">${students.length} studenti</span>
-          <span class="txt-s2 txt-sm"> · ${done} valutati</span></div>
-        <div style="min-width:70px">
-          <div class="txt-sm" style="text-align:right;color:var(--txt2)">${Math.round(done/students.length*100)||0}%</div>
-          <div class="pb"><div class="pb-fill" style="width:${Math.round(done/students.length*100)||0}%"></div></div>
+    const card = document.createElement('div'); card.className = 'session-card';
+    card.innerHTML = `
+      <div class="session-header">
+        <span class="sname">${esc(sess.name)}</span>
+        <span class="tag">${students.length} studenti</span>
+        <button class="btn btn-danger btn-sm" onclick="deleteSession('${sess.id}')">✕</button>
+      </div>
+      <div class="session-body">
+        <div style="font-size:.82rem;margin-bottom:.5rem">${evalStr}</div>
+        <div class="chip-list">${students.map(s=>{
+          const bc=briefColorClass(s.brief);
+          return `<span class="tag ${bc}" style="background:var(--brief-col,var(--primary));color:#fff">${esc(s.name)}</span>`;
+        }).join('')||'<span style="color:var(--muted);font-size:.82rem">Nessuno studente</span>'}</div>
+        <div style="margin-top:.6rem">
+          <div class="form-row">
+            <select id="sess-professor-${sess.id}" style="font-size:.8rem"><option value="">+ Professore</option>${(S.professors||[]).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+            <button class="btn btn-ghost btn-sm" onclick="addToSession('${sess.id}','professor')">Aggiungi</button>
+          </div>
+          <div class="form-row">
+            <select id="sess-assistant-${sess.id}" style="font-size:.8rem"><option value="">+ Assistente</option>${(S.assistants||[]).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+            <button class="btn btn-ghost btn-sm" onclick="addToSession('${sess.id}','assistant')">Aggiungi</button>
+          </div>
+          <div class="form-row">
+            <select id="sess-companyRep-${sess.id}" style="font-size:.8rem"><option value="">+ Azienda</option>${(S.companyReps||[]).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+            <button class="btn btn-ghost btn-sm" onclick="addToSession('${sess.id}','companyRep')">Aggiungi</button>
+          </div>
         </div>
-      </div>
-    </div>
-    ${students.map(s => buildStudentCard(s, evaluatorId, evaluatorType)).join('')}
-  `;
-}
-
-function buildStudentCard(student, evaluatorId, evaluatorType) {
-  const ev = (S.evaluations||[]).find(e=>e.studentId===student.id&&e.evaluatorId===evaluatorId);
-  const scores = ev?.scores || {};
-  const comment = ev?.comment || '';
-  const final = computeFinal(student.id);
-  const cfg = S.config || {};
-  const areas = cfg.areas || [];
-  const smin = cfg.scoreMin ?? 0, smax = cfg.scoreMax ?? 30;
-
-  const areaInputs = areas.map(a => `
-    <label style="margin:0;font-size:13px;font-weight:500;color:var(--txt)">${esc(a.name)}</label>
-    <input type="number" class="score-in" inputmode="decimal"
-      min="${smin}" max="${smax}" step="0.5" placeholder="—"
-      value="${scores[a.id]!==undefined?scores[a.id]:''}"
-      data-sid="${student.id}" data-eid="${evaluatorId}" data-etype="${evaluatorType}" data-area="${a.id}"
-      onchange="onScoreChange(this)">
-  `).join('');
-
-  const areaAvgs = areas.map(a => {
-    const avg = computeAreaAvg(student.id, a.id);
-    return `<div class="avg-row"><span class="avg-lbl">${esc(a.name)}</span>
-      <span class="avg-val" id="avv-${student.id}-${a.id}">${avg!==null?avg.toFixed(1):'—'}</span></div>`;
-  }).join('');
-
-  // All comments from all evaluators
-  const allEvals = (S.evaluations||[]).filter(e=>e.studentId===student.id&&e.comment);
-  const commentsHtml = allEvals.length ? `
-    <div class="esec-title" style="margin-top:10px">Commenti</div>
-    ${allEvals.map(ev2=>{
-      const who = [...(S.professors||[]),...(S.assistants||[]),...(S.companyReps||[])].find(p=>p.id===ev2.evaluatorId);
-      return `<div class="comment-item"><div class="comment-who">${esc(who?.name||'?')} (${ev2.evaluatorType})</div>${esc(ev2.comment)}</div>`;
-    }).join('')}
-  ` : '';
-
-  return `<div class="sec">
-    <div class="sec-hdr" onclick="toggleCard('${student.id}')">
-      <div>
-        <div class="sec-name">${esc(student.name)}</div>
-        ${student.brief?`<div class="sec-brief">${esc(student.brief)}</div>`:''}
-      </div>
-      <div class="grade-prev" id="gp-${student.id}">${final!==null?final.toFixed(1):'—'}</div>
-      <div class="sec-arrow" id="arr-${student.id}">▼</div>
-    </div>
-    <div class="sec-body" id="body-${student.id}">
-      <div class="esec-title">La tua valutazione</div>
-      <div class="area-grid">${areaInputs}</div>
-      <div class="fg mt10"><label>Commento</label>
-        <textarea placeholder="Inserisci un commento (opzionale)..."
-          data-sid="${student.id}" data-eid="${evaluatorId}" data-etype="${evaluatorType}"
-          oninput="onCommentInput(this)"
-        >${esc(comment)}</textarea>
-      </div>
-      <div class="esec-title mt10">Media globale studente</div>
-      ${areaAvgs}
-      <div class="final-box"><span class="label">Voto finale</span>
-        <span class="val" id="fv-${student.id}">${final!==null?final.toFixed(1):'—'}</span></div>
-      ${commentsHtml}
-    </div>
-  </div>`;
-}
-
-function toggleCard(sid) {
-  const body = $('body-'+sid), arr = $('arr-'+sid);
-  const open = body.classList.toggle('open');
-  if (arr) arr.style.transform = open ? 'rotate(180deg)' : '';
-}
-
-// Debounced save handlers
-const debouncedScore = debounce(async (sid, eid, etype, areaId, val) => {
-  const score = val === '' ? null : parseFloat(val);
-  await api('PUT', '/api/evaluations', { studentId:sid, evaluatorId:eid, evaluatorType:etype, scores:{[areaId]: score} });
-}, 600);
-
-const debouncedComment = debounce(async (sid, eid, etype, val) => {
-  await api('PUT', '/api/evaluations', { studentId:sid, evaluatorId:eid, evaluatorType:etype, comment:val });
-}, 900);
-
-function onScoreChange(input) {
-  const { sid, eid, etype, area } = input.dataset;
-  // Optimistic local update
-  let ev = (S.evaluations||[]).find(e=>e.studentId===sid&&e.evaluatorId===eid);
-  if (!ev) { ev={id:'tmp',studentId:sid,evaluatorId:eid,evaluatorType:etype,scores:{},comment:''}; (S.evaluations=S.evaluations||[]).push(ev); }
-  const v = input.value === '' ? undefined : parseFloat(input.value);
-  if (v === undefined) delete ev.scores[area]; else ev.scores[area] = v;
-  refreshGradePreviews();
-  debouncedScore(sid, eid, etype, area, input.value);
-}
-
-function onCommentInput(ta) {
-  const { sid, eid, etype } = ta.dataset;
-  debouncedComment(sid, eid, etype, ta.value);
-}
-
-function refreshGradePreviews() {
-  (S.students||[]).forEach(s => {
-    const final = computeFinal(s.id);
-    const gp = $('gp-'+s.id), fv = $('fv-'+s.id);
-    const txt = final !== null ? final.toFixed(1) : '—';
-    if (gp) gp.textContent = txt;
-    if (fv) fv.textContent = txt;
-    (S.config?.areas||[]).forEach(a => {
-      const avg = computeAreaAvg(s.id, a.id);
-      const el = $(`avv-${s.id}-${a.id}`);
-      if (el) el.textContent = avg !== null ? avg.toFixed(1) : '—';
-    });
+      </div>`;
+    div.appendChild(card);
   });
 }
 
-// ══════════════════════════════════════════════════════════
-// GRADE COMPUTATION
-// ══════════════════════════════════════════════════════════
-function weight(type) {
-  const w = S.config?.weights || {};
-  return type==='professor'?w.professor??3:type==='assistant'?w.assistant??2:w.companyRep??1;
-}
-
-function computeAreaAvg(studentId, areaId) {
-  const evals = (S.evaluations||[]).filter(e=>e.studentId===studentId&&e.scores&&e.scores[areaId]!==undefined);
-  if (!evals.length) return null;
-  let ws=0, wt=0;
-  evals.forEach(e=>{ const w2=weight(e.evaluatorType); ws+=e.scores[areaId]*w2; wt+=w2; });
-  return wt>0?ws/wt:null;
-}
-
-function computeFinal(studentId) {
-  const avgs = (S.config?.areas||[]).map(a=>computeAreaAvg(studentId,a.id)).filter(v=>v!==null);
-  return avgs.length?avgs.reduce((a,b)=>a+b,0)/avgs.length:null;
-}
-
-// ══════════════════════════════════════════════════════════
-// RESULTS TAB
-// ══════════════════════════════════════════════════════════
-function renderResults() {
-  const sessionId = $('sel-sess-res')?.value || 'all';
-  const students = getStudents(sessionId);
-  const el = $('results-content');
-  const areas = S.config?.areas || [];
-  if (!students.length) { el.innerHTML='<p class="txt-sm txt-muted">Nessun dato.</p>'; return; }
-
-  const rows = students.map(s => {
-    const aAvgs = areas.map(a=>computeAreaAvg(s.id,a.id));
-    const final = computeFinal(s.id);
-    return `<tr>
-      <td style="font-weight:500">${esc(s.name)}</td>
-      <td class="txt-s2">${esc(s.brief||'—')}</td>
-      ${aAvgs.map(v=>`<td class="td-grade">${v!==null?v.toFixed(1):'—'}</td>`).join('')}
-      <td class="td-final">${final!==null?final.toFixed(1):'—'}</td>
-    </tr>`;
-  }).join('');
-
-  el.innerHTML = `<div class="tbl-wrap"><table>
-    <thead><tr>
-      <th>Studente</th><th>Brief</th>
-      ${areas.map(a=>`<th>${esc(a.name)}</th>`).join('')}
-      <th>Voto Finale</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>`;
-}
-
-// ══════════════════════════════════════════════════════════
-// EXPORT / IMPORT
-// ══════════════════════════════════════════════════════════
-function exportXlsx() {
-  const sessionId = $('sel-sess-res')?.value || 'all';
-  const students = getStudents(sessionId);
-  const areas = S.config?.areas || [];
-  const course = S.config?.courseName || 'Esame';
-
-  const h1 = ['Studente','Brief',...areas.map(a=>a.name),'Voto Finale'];
-  const r1 = students.map(s=>[s.name,s.brief||'',...areas.map(a=>{const v=computeAreaAvg(s.id,a.id);return v!==null?+v.toFixed(2):null;}),
-    (v=>v!==null?+v.toFixed(2):null)(computeFinal(s.id))]);
-
-  const h2 = ['Studente','Brief','Valutatore','Tipo',...areas.map(a=>a.name),'Commento'];
-  const r2 = [];
-  students.forEach(s=>{
-    (S.evaluations||[]).filter(e=>e.studentId===s.id).forEach(ev=>{
-      const who=[...(S.professors||[]),...(S.assistants||[]),...(S.companyReps||[])].find(p=>p.id===ev.evaluatorId);
-      r2.push([s.name,s.brief||'',who?.name||'?',ev.evaluatorType,...areas.map(a=>ev.scores?.[a.id]??null),ev.comment||'']);
-    });
-  });
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([h1,...r1]), 'Riepilogo');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([h2,...r2]), 'Dettaglio voti');
-  XLSX.writeFile(wb, `Risultati_${course}_${new Date().toISOString().slice(0,10)}.xlsx`);
-}
-
-function exportBackup() {
-  const blob = new Blob([JSON.stringify(S, null, 2)], { type:'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href=url;
-  a.download=`backup_evalpoli_${new Date().toISOString().slice(0,10)}.json`;
-  a.click(); URL.revokeObjectURL(url);
-}
-
-function importBackup(event) {
-  const file = event.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async e => {
-    try {
-      const data = JSON.parse(e.target.result);
-      if (!confirm('Importare i dati? I dati attuali verranno sostituiti.')) return;
-      await api('PUT', '/api/state', data);
-    } catch(err) { alert('Errore importazione: '+err.message); }
-  };
-  reader.readAsText(file);
-  event.target.value = '';
-}
-
-async function resetData() {
-  if (!confirm('ATTENZIONE: elimina TUTTI i dati. Sei sicuro?')) return;
-  if (!confirm('Seconda conferma: eliminare davvero tutto?')) return;
-  await api('PUT', '/api/state', {
-    config: { courseName:'', areas:[
-      {id:'a1',name:'Completezza e Innovazione'},
-      {id:'a2',name:'Innovazione'},
-      {id:'a3',name:'Esposizione'}
-    ], weights:{professor:3,assistant:2,companyRep:1}, scoreMin:0, scoreMax:30 },
-    sessions:[], students:[], professors:[], assistants:[], companyReps:[], evaluations:[]
-  });
-}
-
-// ══════════════════════════════════════════════════════════
-// MODALS
-// ══════════════════════════════════════════════════════════
-function openModal(id) { $(id).classList.add('open'); }
-function closeModal(id) { $(id).classList.remove('open'); }
-
-document.querySelectorAll('.mo').forEach(m => {
-  m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); });
+// ══════════════════════════════════════════════
+// Privacy toggle
+// ══════════════════════════════════════════════
+document.getElementById('privacy-btn').addEventListener('click', () => {
+  privacyMode = !privacyMode;
+  const btn = document.getElementById('privacy-btn');
+  btn.classList.toggle('active', privacyMode);
+  btn.textContent = privacyMode ? '🙈 Privato ON' : '👁 Privato';
+  document.querySelectorAll('.student-card').forEach(c => c.classList.toggle('privacy-mode', privacyMode));
 });
 
-// ══════════════════════════════════════════════════════════
-// KEYBOARD SHORTCUTS
-// ══════════════════════════════════════════════════════════
-$('inp-pw').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
-$('inp-pw1').addEventListener('keydown', e => { if (e.key==='Enter') $('inp-pw2').focus(); });
-$('inp-pw2').addEventListener('keydown', e => { if (e.key==='Enter') doSetup(); });
-$('mo-person-name').addEventListener('keydown', e => { if (e.key==='Enter') savePerson(); });
-$('btn-login').addEventListener('click', doLogin);
-$('btn-setup').addEventListener('click', doSetup);
+// ══════════════════════════════════════════════
+// Exam strips
+// ══════════════════════════════════════════════
+function renderExamStrips() {
+  ['valuta','risultati'].forEach(tab => {
+    const div = document.getElementById(`${tab}-exam-strip`);
+    if (!div) return;
+    div.innerHTML = (S.exams||[]).map(ex =>
+      `<button class="exam-tab-btn${ex.id===activeExamId?' active':''}" onclick="switchExam('${ex.id}')">${esc(ex.name)}</button>`
+    ).join('');
+  });
+  // Drive link button for risultati
+  const ex = getActiveExam();
+  const driveBtn = document.getElementById('drive-link-btn');
+  if (driveBtn) {
+    if (ex && ex.driveUrl) { driveBtn.href=ex.driveUrl; driveBtn.style.display=''; }
+    else driveBtn.style.display='none';
+  }
+}
 
-// ══════════════════════════════════════════════════════════
-// STARTUP
-// ══════════════════════════════════════════════════════════
-initAuth().catch(e => console.error('Init error:', e));
+function switchExam(id) {
+  activeExamId = id;
+  renderExamStrips();
+  if (currentTab === 'valuta') renderValuta();
+  if (currentTab === 'risultati') renderRisultati();
+}
+
+// ══════════════════════════════════════════════
+// Valuta
+// ══════════════════════════════════════════════
+function buildEvaluatorList() {
+  return [
+    ...(S.professors||[]).map(p=>({...p,type:'professor',label:`👨‍🏫 ${p.name}`})),
+    ...(S.assistants||[]).map(p=>({...p,type:'assistant',label:`🎓 ${p.name}`})),
+    ...(S.companyReps||[]).map(p=>({...p,type:'companyRep',label:`🏢 ${p.name}`}))
+  ];
+}
+
+function renderValuta() {
+  renderExamStrips();
+
+  const sel = document.getElementById('evaluator-select');
+  const currentEvalId = sel.value;
+  sel.innerHTML = '<option value="">-- Seleziona valutatore --</option>';
+  const allEvaluators = buildEvaluatorList();
+  allEvaluators.forEach(ev => {
+    const opt = document.createElement('option');
+    opt.value = ev.id; opt.textContent = ev.label;
+    sel.appendChild(opt);
+  });
+  if (currentEvalId) sel.value = currentEvalId;
+
+  const evalId = sel.value;
+  const evaluator = allEvaluators.find(e => e.id === evalId);
+  const query = (document.getElementById('student-search').value||'').toLowerCase();
+  const listDiv = document.getElementById('valuta-list');
+  listDiv.innerHTML = '';
+
+  if (!evalId) { listDiv.innerHTML = '<div class="empty">Seleziona un valutatore per iniziare.</div>'; return; }
+
+  const exam = getActiveExam();
+  const evals = getActiveEvals();
+  let students = [...(S.students||[])];
+  if (query) students = students.filter(s =>
+    s.name.toLowerCase().includes(query) ||
+    (s.brief||'').toLowerCase().includes(query) ||
+    (s.codicePersona||'').toLowerCase().includes(query)
+  );
+  if (!students.length) { listDiv.innerHTML = '<div class="empty">Nessuno studente trovato.</div>'; return; }
+
+  students.forEach(st => {
+    const bc = briefColorClass(st.brief);
+    const card = document.createElement('div');
+    card.className = `student-card ${bc}`;
+    if (privacyMode) card.classList.add('privacy-mode');
+    card.dataset.studentId = st.id;
+
+    const ev = evals.find(e => e.studentId===st.id && e.evaluatorId===evalId) || { scores:{}, lodes:{}, comment:'' };
+    const areas = S.config?.areas || [];
+    const fin = computeFinal(st.id, evals);
+
+    let areasHtml = areas.map(a => {
+      const rawScore = ev.scores[a.id];
+      const hasLode  = ev.lodes?.[a.id];
+      const dispVal  = rawScore !== undefined ? (hasLode ? rawScore+'L' : String(rawScore)) : '';
+      return `<div class="area-input-wrap">
+        <span class="area-label">${esc(a.name)}</span>
+        <input class="score-input${hasLode?' has-lode':''}" type="text" inputmode="decimal"
+          value="${esc(dispVal)}"
+          data-student="${st.id}" data-area="${a.id}"
+          data-evalid="${evalId}" data-evaltype="${evaluator.type}"
+          data-examid="${exam?.id||''}"
+          placeholder="—"
+          oninput="onScoreInput(this)"
+          onblur="saveScore(this)">
+      </div>`;
+    }).join('');
+
+    const areaPreviewStr = areas.map(a => {
+      const v = computeAreaAvg(st.id, a.id, evals);
+      return v!==null ? v.toFixed(1) : '—';
+    }).join(' | ');
+
+    card.innerHTML = `
+      <div class="student-header" onclick="toggleCard(this)">
+        <span class="sname">${esc(st.name)}</span>
+        ${st.codicePersona ? `<span class="scode">${esc(st.codicePersona)}</span>` : ''}
+        ${st.brief ? `<span class="brief-badge">${esc(st.brief)}</span>` : ''}
+        <span class="final-badge" data-final="${st.id}">${fin!==null?fin.toFixed(1):'—'}</span>
+        ${st.driveUrl ? `<a href="${esc(st.driveUrl)}" target="_blank" class="btn btn-ghost btn-sm drive-link" onclick="event.stopPropagation()">OneDrive</a>` : ''}
+      </div>
+      <div class="student-body">
+        <div class="areas-grid">${areasHtml}</div>
+        <div class="grade-preview">Media aree: <span data-areapreview="${st.id}">${areaPreviewStr}</span></div>
+        <div class="comment-row">
+          <label>Commento</label>
+          <textarea data-comment="${st.id}" data-evalid="${evalId}"
+            data-evaltype="${evaluator.type}" data-examid="${exam?.id||''}"
+            placeholder="Note facoltative…" oninput="onCommentInput(this)">${esc(ev.comment||'')}</textarea>
+        </div>
+      </div>`;
+    listDiv.appendChild(card);
+  });
+}
+
+function toggleCard(header) {
+  const body = header.nextElementSibling;
+  if (!body) return;
+  body.style.display = body.style.display === 'none' ? '' : 'none';
+}
+
+// ── Score input (30L support) ──────────────────
+function onScoreInput(inp) {
+  const raw = inp.value.trim().toUpperCase();
+  const hasL = raw.endsWith('L');
+  const num  = parseFloat(raw.replace(/L/g,''));
+  inp.classList.toggle('has-lode', hasL && num === (S.config?.scoreMax||30));
+  clearTimeout(inp._t);
+  inp._t = setTimeout(() => saveScore(inp), 700);
+}
+
+async function saveScore(inp) {
+  clearTimeout(inp._t);
+  const raw   = inp.value.trim().toUpperCase();
+  const hasL  = raw.endsWith('L');
+  const num   = parseFloat(raw.replace(/L/g,''));
+  const areaId   = inp.dataset.area;
+  const studentId= inp.dataset.student;
+  const evalId   = inp.dataset.evalid;
+  const evalType = inp.dataset.evaltype;
+  const examId   = inp.dataset.examid;
+  const scoreMax = S.config?.scoreMax || 30;
+
+  const scoreVal = raw === '' ? null : (isNaN(num) ? null : Math.min(Math.max(0, num), scoreMax));
+  const lodeVal  = hasL && scoreVal === scoreMax;
+
+  await api('PUT', `/api/exams/${examId}/evaluations`, {
+    studentId, evaluatorId: evalId, evaluatorType: evalType,
+    scores: { [areaId]: scoreVal },
+    lodes:  { [areaId]: lodeVal }
+  });
+}
+
+const commentTimers = {};
+function onCommentInput(ta) {
+  const key = `${ta.dataset.comment}_${ta.dataset.evalid}`;
+  clearTimeout(commentTimers[key]);
+  commentTimers[key] = setTimeout(() => saveComment(ta), 900);
+}
+
+async function saveComment(ta) {
+  const examId   = ta.dataset.examid;
+  const studentId= ta.dataset.comment;
+  const evalId   = ta.dataset.evalid;
+  const evalType = ta.dataset.evaltype;
+  await api('PUT', `/api/exams/${examId}/evaluations`, {
+    studentId, evaluatorId: evalId, evaluatorType: evalType, comment: ta.value
+  });
+}
+
+// ── Grade computation ──────────────────────────
+function weight(type) {
+  const w = S.config?.weights || { professor:3, assistant:2, companyRep:1 };
+  return (w[type] !== undefined ? w[type] : 1);
+}
+
+function computeAreaAvg(studentId, areaId, evalsArr) {
+  const evs = (evalsArr||[]).filter(e => e.studentId===studentId && e.scores && e.scores[areaId]!==undefined);
+  if (!evs.length) return null;
+  let ws=0, wt=0;
+  evs.forEach(e => { const w2=weight(e.evaluatorType); ws+=e.scores[areaId]*w2; wt+=w2; });
+  return wt > 0 ? ws/wt : null;
+}
+
+function computeFinal(studentId, evalsArr) {
+  const avgs = (S.config?.areas||[]).map(a => computeAreaAvg(studentId, a.id, evalsArr)).filter(v=>v!==null);
+  return avgs.length ? avgs.reduce((a,b)=>a+b,0)/avgs.length : null;
+}
+
+function updateAllGradePreviews() {
+  const evals = getActiveEvals();
+  const areas = S.config?.areas || [];
+  (S.students||[]).forEach(st => {
+    const el = document.querySelector(`[data-areapreview="${st.id}"]`);
+    if (el) el.textContent = areas.map(a => { const v=computeAreaAvg(st.id,a.id,evals); return v!==null?v.toFixed(1):'—'; }).join(' | ');
+    const fb = document.querySelector(`[data-final="${st.id}"]`);
+    if (fb) { const fin=computeFinal(st.id,evals); fb.textContent=fin!==null?fin.toFixed(1):'—'; }
+  });
+}
+
+// ══════════════════════════════════════════════
+// Risultati
+// ══════════════════════════════════════════════
+function renderRisultati() {
+  renderExamStrips();
+  const evals = getActiveEvals();
+  const div = document.getElementById('risultati-content');
+  if (!(S.students||[]).length) { div.innerHTML='<div class="empty">Nessuno studente.</div>'; return; }
+
+  const areas = S.config?.areas || [];
+  const allEvals = buildEvaluatorList().map(e => ({...e, role: e.type==='professor'?'Prof':e.type==='assistant'?'Asst':'Az.'}));
+  const exam = getActiveExam();
+
+  let html = `<div style="overflow-x:auto"><table class="risultati-table"><thead><tr>
+    <th>Studente</th><th>Codice</th><th>Brief</th>
+    ${areas.map(a=>`<th>${esc(a.name)}</th>`).join('')}
+    <th>Voto finale</th><th></th>
+  </tr></thead><tbody>`;
+
+  S.students.forEach(st => {
+    const fin = computeFinal(st.id, evals);
+    const areaAvgs = areas.map(a => computeAreaAvg(st.id, a.id, evals));
+    const stEvals = evals.filter(e => e.studentId === st.id);
+    const driveUrl = st.driveUrl || exam?.driveUrl || '';
+    const bc = briefColorClass(st.brief);
+
+    html += `<tr>
+      <td>${esc(st.name)}${driveUrl?` <a href="${esc(driveUrl)}" target="_blank" class="drive-link" title="Apri OneDrive">🔗</a>`:''}
+      </td>
+      <td style="color:var(--muted)">${esc(st.codicePersona||'')}</td>
+      <td>${st.brief?`<span class="tag ${bc}" style="background:var(--brief-col,var(--primary));color:#fff">${esc(st.brief)}</span>`:''}</td>
+      ${areaAvgs.map(v=>`<td>${v!==null?v.toFixed(1):'—'}</td>`).join('')}
+      <td><span class="final-badge">${fin!==null?fin.toFixed(1):'—'}</span></td>
+      <td><span class="toggle-detail" onclick="toggleDetail(this,'${st.id}')">▶ dettaglio</span></td>
+    </tr>`;
+
+    const detEvals = allEvals.map(ev => {
+      const entry = stEvals.find(e => e.evaluatorId === ev.id);
+      if (!entry) return '';
+      const scores = areas.map(a => {
+        const v = entry.scores?.[a.id];
+        const lode = entry.lodes?.[a.id];
+        return `<td>${v!==undefined?(lode?`<b>${v}L</b>`:v):'—'}</td>`;
+      }).join('');
+      return `<tr><td><b>${esc(ev.name)}</b></td><td style="color:var(--muted)">${ev.role}</td>${scores}<td style="font-size:.73rem;max-width:180px;color:var(--muted)">${esc(entry.comment||'')}</td></tr>`;
+    }).join('');
+
+    html += `<tr class="detail-row" id="detail-${st.id}" style="display:none">
+      <td colspan="${4+areas.length}">
+        <table><thead><tr><th>Valutatore</th><th>Ruolo</th>${areas.map(a=>`<th>${esc(a.name)}</th>`).join('')}<th>Commento</th></tr></thead>
+        <tbody>${detEvals||`<tr><td colspan="${3+areas.length}" style="color:var(--muted)">Nessuna valutazione</td></tr>`}</tbody>
+        </table>
+      </td></tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  div.innerHTML = html;
+}
+
+function toggleDetail(span, studentId) {
+  const row = document.getElementById(`detail-${studentId}`);
+  if (!row) return;
+  const shown = row.style.display !== 'none';
+  row.style.display = shown ? 'none' : '';
+  span.textContent = shown ? '▶ dettaglio' : '▼ dettaglio';
+}
+
+// ══════════════════════════════════════════════
+// Export Excel
+// ══════════════════════════════════════════════
+function exportExcel() {
+  const exam   = getActiveExam();
+  const evals  = exam?.evaluations || [];
+  const areas  = S.config?.areas || [];
+  const allEvs = buildEvaluatorList().map(e=>({...e,role:e.type==='professor'?'Professore':e.type==='assistant'?'Assistente':'Azienda'}));
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Riepilogo
+  const sumHeader = ['Studente','Codice Persona','Brief',...areas.map(a=>a.name),'Voto Finale','Link OneDrive'];
+  const sumRows = (S.students||[]).map(st => {
+    const fin = computeFinal(st.id, evals);
+    return [
+      st.name, st.codicePersona||'', st.brief||'',
+      ...areas.map(a => { const v=computeAreaAvg(st.id,a.id,evals); return v!==null?+v.toFixed(2):''; }),
+      fin!==null?+fin.toFixed(2):'',
+      st.driveUrl||exam?.driveUrl||''
+    ];
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sumHeader,...sumRows]), 'Riepilogo');
+
+  // Sheet 2: Valutazioni dettagliate
+  const detHeader = ['Studente','Codice Persona','Brief','Valutatore','Ruolo',...areas.map(a=>a.name),'Commento'];
+  const detRows = [];
+  (S.students||[]).forEach(st => {
+    evals.filter(e=>e.studentId===st.id).forEach(e => {
+      const ev = allEvs.find(x=>x.id===e.evaluatorId);
+      detRows.push([
+        st.name, st.codicePersona||'', st.brief||'',
+        ev?.name||e.evaluatorId, ev?.role||e.evaluatorType,
+        ...areas.map(a => {
+          const v=e.scores?.[a.id]; const L=e.lodes?.[a.id];
+          return v!==undefined?(L?`${v}L`:v):'';
+        }),
+        e.comment||''
+      ]);
+    });
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([detHeader,...detRows]), 'Valutazioni Dettagliate');
+
+  // Sheet 3: Partecipanti
+  const parHeader = ['Nome','Tipo','Brief','Codice Persona','Link OneDrive'];
+  const parRows = [
+    ...(S.students||[]).map(s=>[s.name,'Studente',s.brief||'',s.codicePersona||'',s.driveUrl||'']),
+    ...(S.professors||[]).map(p=>[p.name,'Professore','','','']),
+    ...(S.assistants||[]).map(p=>[p.name,'Assistente','','','']),
+    ...(S.companyReps||[]).map(p=>[p.name,'Azienda','','',''])
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([parHeader,...parRows]), 'Partecipanti');
+
+  const fname = `evalpoli-${(S.config?.courseName||'export').replace(/\s+/g,'_')}-${(exam?.name||'').replace(/\s+/g,'_')}-${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+// ══════════════════════════════════════════════
+// Utility
+// ══════════════════════════════════════════════
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══════════════════════════════════════════════
+// Boot
+// ══════════════════════════════════════════════
+if (token) {
+  api('GET','/api/state')
+    .then(s => {
+      S = s;
+      if (S.exams?.length) activeExamId = S.exams[0].id;
+      rebuildBriefColors();
+      document.getElementById('auth-overlay').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      render();
+    })
+    .catch(() => init());
+} else {
+  init();
+}
 </script>
 </body>
 </html>

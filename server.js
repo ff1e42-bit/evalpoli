@@ -25,16 +25,47 @@ const mkDefault = () => ({
     scoreMin: 0,
     scoreMax: 30
   },
-  sessions: [], students: [], professors: [],
-  assistants: [], companyReps: [], evaluations: []
+  sessions: [],
+  students: [],   // { id, name, brief, codicePersona, driveUrl }
+  professors: [],
+  assistants: [],
+  companyReps: [],
+  exams: [
+    { id: 'exam_default', name: 'Prima Prova', driveUrl: '', evaluations: [] }
+  ]
 });
 
 let state = mkDefault();
 
+// Migrate old format (top-level evaluations) to new exams structure
+function migrate(s) {
+  if (s.evaluations !== undefined && !s.exams) {
+    s.exams = [{
+      id: 'exam_default',
+      name: 'Prima Prova',
+      driveUrl: '',
+      evaluations: (s.evaluations || []).map(ev => ({
+        ...ev,
+        lodes: ev.lodes || {}
+      }))
+    }];
+    delete s.evaluations;
+  }
+  if (!s.exams || s.exams.length === 0) {
+    s.exams = [{ id: 'exam_default', name: 'Prima Prova', driveUrl: '', evaluations: [] }];
+  }
+  // Ensure all evaluations have lodes field
+  s.exams.forEach(ex => {
+    ex.evaluations = (ex.evaluations || []).map(ev => ({ lodes: {}, ...ev }));
+  });
+  return s;
+}
+
 function load() {
   try {
     if (fs.existsSync(DATA_FILE)) {
-      const d = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      let d = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      d = migrate(d);
       state = { ...mkDefault(), ...d, config: { ...mkDefault().config, ...d.config } };
     }
   } catch (e) { console.error('Load error:', e); }
@@ -54,7 +85,7 @@ function publicState() {
     professors: state.professors,
     assistants: state.assistants,
     companyReps: state.companyReps,
-    evaluations: state.evaluations
+    exams: state.exams
   };
 }
 
@@ -102,10 +133,9 @@ app.get('/api/state', auth, (_, res) => res.json(publicState()));
 
 app.put('/api/state', auth, (req, res) => {
   const oldHash = state.config.passwordHash;
-  state = {
-    ...mkDefault(), ...req.body,
-    config: { ...mkDefault().config, ...(req.body.config || {}), passwordHash: oldHash }
-  };
+  let ns = { ...mkDefault(), ...req.body, config: { ...mkDefault().config, ...(req.body.config || {}), passwordHash: oldHash } };
+  ns = migrate(ns);
+  state = ns;
   save();
   res.json({ ok: true });
 });
@@ -118,7 +148,7 @@ app.put('/api/config', auth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ── People (students / professors / assistants / companyReps) ──
+// ── People ─────────────────────────────────────────────────────
 ['students', 'professors', 'assistants', 'companyReps'].forEach(key => {
   app.put(`/api/${key}`, auth, (req, res) => {
     state[key] = req.body;
@@ -141,8 +171,10 @@ app.put('/api/config', auth, (req, res) => {
         if (s[k]) s[k] = s[k].filter(x => x !== id);
       })
     );
-    if (key === 'students') state.evaluations = state.evaluations.filter(e => e.studentId !== id);
-    else state.evaluations = state.evaluations.filter(e => e.evaluatorId !== id);
+    state.exams.forEach(ex => {
+      if (key === 'students') ex.evaluations = ex.evaluations.filter(e => e.studentId !== id);
+      else ex.evaluations = ex.evaluations.filter(e => e.evaluatorId !== id);
+    });
     save();
     res.json({ ok: true });
   });
@@ -150,11 +182,7 @@ app.put('/api/config', auth, (req, res) => {
 
 // ── Sessions ───────────────────────────────────────────────────
 app.post('/api/sessions', auth, (req, res) => {
-  const s = {
-    id: `s_${Date.now()}`,
-    studentIds: [], professorIds: [], assistantIds: [], companyRepIds: [],
-    ...req.body
-  };
+  const s = { id: `s_${Date.now()}`, studentIds: [], professorIds: [], assistantIds: [], companyRepIds: [], ...req.body };
   state.sessions.push(s);
   save();
   res.json(s);
@@ -174,34 +202,85 @@ app.delete('/api/sessions/:id', auth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Divide students among sessions
+// Divide students among sessions (alternating | half | brief)
 app.post('/api/divide', auth, (req, res) => {
   const { method } = req.body;
   const n = state.sessions.length;
   if (n < 1) return res.json({ ok: true });
   state.sessions.forEach(s => { s.studentIds = []; });
-  state.students.forEach((st, i) => {
-    const idx = method === 'alternating'
-      ? i % n
-      : Math.min(Math.floor((i / state.students.length) * n), n - 1);
-    state.sessions[idx].studentIds.push(st.id);
-  });
+
+  if (method === 'brief') {
+    const groups = {};
+    state.students.forEach(st => {
+      const key = st.brief || '\x00'; // \x00 = no brief, goes first
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(st.id);
+    });
+    Object.values(groups).forEach((group, i) => {
+      const idx = i % n;
+      group.forEach(id => state.sessions[idx].studentIds.push(id));
+    });
+  } else {
+    state.students.forEach((st, i) => {
+      const idx = method === 'alternating'
+        ? i % n
+        : Math.min(Math.floor((i / state.students.length) * n), n - 1);
+      state.sessions[idx].studentIds.push(st.id);
+    });
+  }
   save();
   res.json({ ok: true });
 });
 
-// ── Evaluations ────────────────────────────────────────────────
-app.put('/api/evaluations', auth, (req, res) => {
-  const { studentId, evaluatorId, evaluatorType, scores, comment } = req.body;
-  let ev = state.evaluations.find(e => e.studentId === studentId && e.evaluatorId === evaluatorId);
+// ── Exams ──────────────────────────────────────────────────────
+app.post('/api/exams', auth, (req, res) => {
+  const exam = {
+    id: `exam_${Date.now()}`,
+    name: req.body.name || 'Nuova Prova',
+    driveUrl: req.body.driveUrl || '',
+    evaluations: []
+  };
+  state.exams.push(exam);
+  save();
+  res.json(exam);
+});
+
+app.put('/api/exams/:id', auth, (req, res) => {
+  const exam = state.exams.find(e => e.id === req.params.id);
+  if (!exam) return res.status(404).json({ error: 'Not found' });
+  if (req.body.name !== undefined) exam.name = req.body.name;
+  if (req.body.driveUrl !== undefined) exam.driveUrl = req.body.driveUrl;
+  save();
+  res.json(exam);
+});
+
+app.delete('/api/exams/:id', auth, (req, res) => {
+  if (state.exams.length <= 1) return res.status(400).json({ error: 'Deve esistere almeno una prova' });
+  state.exams = state.exams.filter(e => e.id !== req.params.id);
+  save();
+  res.json({ ok: true });
+});
+
+app.put('/api/exams/:id/evaluations', auth, (req, res) => {
+  const exam = state.exams.find(e => e.id === req.params.id);
+  if (!exam) return res.status(404).json({ error: 'Not found' });
+
+  const { studentId, evaluatorId, evaluatorType, scores, lodes, comment } = req.body;
+  let ev = exam.evaluations.find(e => e.studentId === studentId && e.evaluatorId === evaluatorId);
   if (!ev) {
-    ev = { id: `e_${Date.now()}`, studentId, evaluatorId, evaluatorType, scores: {}, comment: '' };
-    state.evaluations.push(ev);
+    ev = { id: `e_${Date.now()}`, studentId, evaluatorId, evaluatorType, scores: {}, lodes: {}, comment: '' };
+    exam.evaluations.push(ev);
   }
   if (scores) {
     Object.entries(scores).forEach(([k, v]) => {
       if (v === null || v === '' || v === undefined) delete ev.scores[k];
       else ev.scores[k] = Number(v);
+    });
+  }
+  if (lodes) {
+    Object.entries(lodes).forEach(([k, v]) => {
+      if (!v) delete (ev.lodes = ev.lodes || {})[k];
+      else (ev.lodes = ev.lodes || {})[k] = true;
     });
   }
   if (comment !== undefined) ev.comment = comment;
@@ -216,5 +295,5 @@ io.on('connection', socket => {
 });
 
 httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n✓ EvalPoli in esecuzione → http://localhost:${PORT}\n`);
+  console.log(`\n✓ EvalPoli → http://localhost:${PORT}\n`);
 });
