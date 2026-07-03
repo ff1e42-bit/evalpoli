@@ -140,7 +140,10 @@ textarea { resize:vertical; min-height:60px; }
 
 /* ── Privacy mode ────────────────────────────── */
 .privacy-mode .score-input,
-.privacy-mode .comment-row { filter:blur(6px); pointer-events:none; }
+.privacy-mode .grade-preview,
+.privacy-mode .comment-row,
+.privacy-mode .final-badge { filter:blur(6px); pointer-events:none; }
+.privacy-mode .score-input { background:var(--bg) !important; border-color:var(--border) !important; }
 .privacy-btn.active { background:var(--danger); color:#fff; border-color:var(--danger); }
 
 /* ── Final grade badge ───────────────────────── */
@@ -276,7 +279,7 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
 
       <b style="font-size:.82rem">Studenti</b>
       <div class="form-row" style="margin-top:.4rem">
-        <div class="form-group"><label>Nome</label><input type="text" id="new-st-name" placeholder="Nome studente"></div>
+        <div class="form-group"><label>Nome</label><input type="text" id="new-students-name" placeholder="Nome studente"></div>
         <div class="form-group"><label>Codice Persona</label><input type="text" id="new-st-code" placeholder="000000"></div>
         <div class="form-group"><label>Brief/Gruppo</label><input type="text" id="new-st-brief" placeholder="A"></div>
       </div>
