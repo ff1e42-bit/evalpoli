@@ -138,6 +138,12 @@ textarea { resize:vertical; min-height:60px; }
 .comment-row { margin-top:.5rem; }
 .comment-row textarea { font-size:.82rem; min-height:44px; }
 
+/* ── Lode checkbox ───────────────────────────── */
+.lode-row { display:flex; align-items:center; gap:.4rem; margin-top:.5rem; font-size:.82rem; }
+.lode-cb { width:1rem; height:1rem; accent-color:gold; cursor:pointer; }
+.lode-cb:disabled { cursor:not-allowed; opacity:.35; }
+.privacy-mode .lode-row { visibility:hidden; }
+
 /* ── Privacy mode ────────────────────────────── */
 .privacy-btn.active { background:var(--danger); color:#fff; border-color:var(--danger); }
 /* Score inputs: * overlay, disappears on focus so you can still type */
@@ -387,6 +393,7 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
       <div class="search-bar">
         <input type="text" id="student-search" placeholder="Cerca studente…" oninput="renderValuta()">
       </div>
+      <button class="btn btn-ghost btn-sm" id="bygroup-btn" onclick="toggleByGroupMode()">👤 Individuale</button>
     </div>
     <div id="valuta-list"></div>
   </div>
@@ -413,6 +420,7 @@ let token = sessionStorage.getItem('evalpoli_token') || '';
 let currentTab = 'setup';
 let activeExamId = null;
 let privacyMode = false;
+let byGroupMode = false;
 
 const BRIEF_COLORS = ['brief-color-0','brief-color-1','brief-color-2','brief-color-3','brief-color-4','brief-color-5','brief-color-6','brief-color-7','brief-color-8','brief-color-9'];
 const briefColorMap = {};
@@ -770,8 +778,13 @@ async function deleteSession(id) {
   await api('DELETE',`/api/sessions/${id}`);
 }
 
-async function toggleByGroup(sessId, newVal) {
-  await api('PUT', `/api/sessions/${sessId}`, { byGroup: newVal });
+function toggleByGroupMode() {
+  byGroupMode = !byGroupMode;
+  const btn = document.getElementById('bygroup-btn');
+  btn.textContent = byGroupMode ? '👥 Per gruppo' : '👤 Individuale';
+  btn.classList.toggle('btn-primary', byGroupMode);
+  btn.classList.toggle('btn-ghost', !byGroupMode);
+  renderValuta();
 }
 
 async function addToSession(sessionId, role) {
@@ -803,9 +816,6 @@ function renderSessioni() {
       <div class="session-header">
         <span class="sname">${esc(sess.name)}</span>
         <span class="tag">${students.length} studenti</span>
-        <button class="btn btn-sm${sess.byGroup ? ' btn-primary' : ' btn-ghost'}" onclick="toggleByGroup('${sess.id}',${!sess.byGroup})" title="Modalità valutazione">
-          ${sess.byGroup ? '👥 Per gruppo' : '👤 Individuale'}
-        </button>
         <button class="btn btn-danger btn-sm" onclick="deleteSession('${sess.id}')">✕</button>
       </div>
       <div class="session-body">
@@ -913,63 +923,69 @@ function renderValuta() {
   const exam = getActiveExam();
   const evals = getActiveEvals();
   const areas = S.config?.areas || [];
+  const scoreMax = S.config?.scoreMax || 30;
 
-  // Detect if evaluator's session uses group mode
-  const evaluatorSession = (S.sessions||[]).find(sess =>
-    [...(sess.professorIds||[]), ...(sess.assistantIds||[]), ...(sess.companyRepIds||[])].includes(evalId)
-  );
-  const byGroup = !!(evaluatorSession?.byGroup);
+  function makeLodeCb(repId, memberIds, ev) {
+    const allMax  = areas.length > 0 && areas.every(a => ev.scores[a.id] === scoreMax);
+    const allLode = allMax && areas.every(a => ev.lodes?.[a.id]);
+    const gmAttr  = memberIds ? `data-group-members="${memberIds}"` : '';
+    return `<div class="lode-row">
+      <input type="checkbox" class="lode-cb"
+        data-student="${repId}" data-evalid="${evalId}"
+        data-evaltype="${evaluator.type}" data-examid="${exam?.id||''}"
+        ${gmAttr} ${allLode?'checked':''} ${allMax?'':'disabled'}
+        onchange="saveLode(this)">
+      <label style="cursor:pointer">🏅 Lode</label>
+    </div>`;
+  }
 
-  if (byGroup && evaluatorSession) {
-    // ── Group mode ──────────────────────────────────────────────
-    const sessionStudentIds = new Set(evaluatorSession.studentIds || []);
-    let sessStudents = (S.students||[]).filter(s => sessionStudentIds.has(s.id));
-    if (query) sessStudents = sessStudents.filter(s =>
+  function makeAreasHtml(repId, memberIds, ev) {
+    const gmAttr = memberIds ? `data-group-members="${memberIds}"` : '';
+    return areas.map(a => {
+      const rawScore = ev.scores[a.id];
+      const hasLode  = ev.lodes?.[a.id];
+      const dispVal  = rawScore !== undefined ? (hasLode ? rawScore+'L' : String(rawScore)) : '';
+      return `<div class="area-input-wrap">
+        <span class="area-label">${esc(a.name)}</span>
+        <div class="score-wrap">
+          <input class="score-input${hasLode?' has-lode':''}" type="text" inputmode="decimal"
+            value="${esc(dispVal)}"
+            data-student="${repId}" data-area="${a.id}"
+            data-evalid="${evalId}" data-evaltype="${evaluator.type}"
+            data-examid="${exam?.id||''}" ${gmAttr}
+            placeholder="—" oninput="onScoreInput(this)" onblur="saveScore(this)">
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  if (byGroupMode) {
+    // ── Group mode: all students, grouped by group field ──────────
+    let students = [...(S.students||[])];
+    if (query) students = students.filter(s =>
       s.name.toLowerCase().includes(query) ||
       (s.group||'').toLowerCase().includes(query) ||
       (s.brief||'').toLowerCase().includes(query) ||
       (s.codicePersona||'').toLowerCase().includes(query)
     );
-    if (!sessStudents.length) { listDiv.innerHTML = '<div class="empty">Nessuno studente trovato.</div>'; return; }
+    if (!students.length) { listDiv.innerHTML = '<div class="empty">Nessuno studente trovato.</div>'; return; }
 
-    // Group by `group` field; ungrouped students get their own card
     const groupMap = new Map();
-    sessStudents.forEach(st => {
+    students.forEach(st => {
       const key = (st.group||'').trim() || `\x00${st.id}`;
       if (!groupMap.has(key)) groupMap.set(key, []);
       groupMap.get(key).push(st);
     });
 
     groupMap.forEach((members, groupKey) => {
-      const isNamed = !groupKey.startsWith('\x00');
-      const repSt = members[0];
+      const isNamed  = !groupKey.startsWith('\x00');
+      const repSt    = members[0];
       const memberIds = members.map(m => m.id).join(',');
       const bc = briefColorClass(repSt.brief);
       const ev = evals.find(e => e.studentId===repSt.id && e.evaluatorId===evalId) || { scores:{}, lodes:{}, comment:'' };
       const fin = computeFinal(repSt.id, evals);
-
-      const areasHtml = areas.map(a => {
-        const rawScore = ev.scores[a.id];
-        const hasLode  = ev.lodes?.[a.id];
-        const dispVal  = rawScore !== undefined ? (hasLode ? rawScore+'L' : String(rawScore)) : '';
-        return `<div class="area-input-wrap">
-          <span class="area-label">${esc(a.name)}</span>
-          <div class="score-wrap">
-            <input class="score-input${hasLode?' has-lode':''}" type="text" inputmode="decimal"
-              value="${esc(dispVal)}"
-              data-student="${repSt.id}" data-area="${a.id}"
-              data-evalid="${evalId}" data-evaltype="${evaluator.type}"
-              data-examid="${exam?.id||''}"
-              data-group-members="${memberIds}"
-              placeholder="—"
-              oninput="onScoreInput(this)"
-              onblur="saveScore(this)">
-          </div>
-        </div>`;
-      }).join('');
-
       const areaPreviewStr = areas.map(a => { const v=computeAreaAvg(repSt.id,a.id,evals); return v!==null?v.toFixed(1):'—'; }).join(' | ');
-      const membersHtml = members.map(m => `<span class="tag" style="font-weight:500">${esc(m.name)}${m.codicePersona?` <span style="opacity:.7;font-size:.7em">${esc(m.codicePersona)}</span>`:''}</span>`).join(' ');
+      const membersHtml = members.map(m => `<span class="tag" style="font-weight:500">${esc(m.name)}${m.codicePersona?` <small style="opacity:.7">${esc(m.codicePersona)}</small>`:''}</span>`).join(' ');
 
       const card = document.createElement('div');
       card.className = `student-card ${bc}`;
@@ -982,8 +998,9 @@ function renderValuta() {
         </div>
         <div class="student-body">
           ${isNamed ? `<div class="chip-list" style="margin-bottom:.5rem">${membersHtml}</div>` : ''}
-          <div class="areas-grid">${areasHtml}</div>
-          <div class="grade-preview">Media aree: <span data-areapreview="${repSt.id}">${areaPreviewStr}</span></div>
+          <div class="areas-grid">${makeAreasHtml(repSt.id, memberIds, ev)}</div>
+          ${makeLodeCb(repSt.id, memberIds, ev)}
+          <div class="grade-preview" style="margin-top:.4rem">Media aree: <span data-areapreview="${repSt.id}">${areaPreviewStr}</span></div>
           <div class="comment-row">
             <label>Commento</label>
             <div class="comment-wrap">
@@ -998,7 +1015,7 @@ function renderValuta() {
     });
 
   } else {
-    // ── Individual mode (existing) ──────────────────────────────
+    // ── Individual mode ───────────────────────────────────────────
     let students = [...(S.students||[])];
     if (query) students = students.filter(s =>
       s.name.toLowerCase().includes(query) ||
@@ -1016,26 +1033,6 @@ function renderValuta() {
 
       const ev = evals.find(e => e.studentId===st.id && e.evaluatorId===evalId) || { scores:{}, lodes:{}, comment:'' };
       const fin = computeFinal(st.id, evals);
-
-      const areasHtml = areas.map(a => {
-        const rawScore = ev.scores[a.id];
-        const hasLode  = ev.lodes?.[a.id];
-        const dispVal  = rawScore !== undefined ? (hasLode ? rawScore+'L' : String(rawScore)) : '';
-        return `<div class="area-input-wrap">
-          <span class="area-label">${esc(a.name)}</span>
-          <div class="score-wrap">
-            <input class="score-input${hasLode?' has-lode':''}" type="text" inputmode="decimal"
-              value="${esc(dispVal)}"
-              data-student="${st.id}" data-area="${a.id}"
-              data-evalid="${evalId}" data-evaltype="${evaluator.type}"
-              data-examid="${exam?.id||''}"
-              placeholder="—"
-              oninput="onScoreInput(this)"
-              onblur="saveScore(this)">
-          </div>
-        </div>`;
-      }).join('');
-
       const areaPreviewStr = areas.map(a => { const v=computeAreaAvg(st.id,a.id,evals); return v!==null?v.toFixed(1):'—'; }).join(' | ');
 
       card.innerHTML = `
@@ -1047,8 +1044,9 @@ function renderValuta() {
           ${st.driveUrl ? `<a href="${esc(st.driveUrl)}" target="_blank" class="btn btn-ghost btn-sm drive-link" onclick="event.stopPropagation()">OneDrive</a>` : ''}
         </div>
         <div class="student-body">
-          <div class="areas-grid">${areasHtml}</div>
-          <div class="grade-preview">Media aree: <span data-areapreview="${st.id}">${areaPreviewStr}</span></div>
+          <div class="areas-grid">${makeAreasHtml(st.id, null, ev)}</div>
+          ${makeLodeCb(st.id, null, ev)}
+          <div class="grade-preview" style="margin-top:.4rem">Media aree: <span data-areapreview="${st.id}">${areaPreviewStr}</span></div>
           <div class="comment-row">
             <label>Commento</label>
             <div class="comment-wrap">
@@ -1074,9 +1072,42 @@ function onScoreInput(inp) {
   const raw = inp.value.trim().toUpperCase();
   const hasL = raw.endsWith('L');
   const num  = parseFloat(raw.replace(/L/g,''));
-  inp.classList.toggle('has-lode', hasL && num === (S.config?.scoreMax||30));
+  const scoreMax = S.config?.scoreMax || 30;
+  inp.classList.toggle('has-lode', hasL && num === scoreMax);
+  updateLodeCbInCard(inp);
   clearTimeout(inp._t);
   inp._t = setTimeout(() => saveScore(inp), 700);
+}
+
+function updateLodeCbInCard(inp) {
+  const card = inp.closest('.student-card');
+  if (!card) return;
+  const cb = card.querySelector('.lode-cb');
+  if (!cb) return;
+  const scoreMax = S.config?.scoreMax || 30;
+  const inputs = [...card.querySelectorAll('.score-input')];
+  const allMax = inputs.length > 0 && inputs.every(i => {
+    const raw = i.value.trim().toUpperCase();
+    return parseFloat(raw.replace(/L/g,'')) === scoreMax;
+  });
+  cb.disabled = !allMax;
+  if (!allMax) cb.checked = false;
+}
+
+async function saveLode(cb) {
+  const evalId   = cb.dataset.evalid;
+  const evalType = cb.dataset.evaltype;
+  const examId   = cb.dataset.examid;
+  const members  = cb.dataset.groupMembers ? cb.dataset.groupMembers.split(',') : [cb.dataset.student];
+  const scoreMax = S.config?.scoreMax || 30;
+  const areas    = S.config?.areas || [];
+  const lodes    = {};
+  areas.forEach(a => { lodes[a.id] = cb.checked; });
+  await Promise.all(members.map(studentId =>
+    api('PUT', `/api/exams/${examId}/evaluations`, {
+      studentId, evaluatorId: evalId, evaluatorType: evalType, lodes
+    })
+  ));
 }
 
 async function saveScore(inp) {
