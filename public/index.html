@@ -287,7 +287,7 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
     <div class="card">
       <div class="card-title">Importa partecipanti (Excel)</div>
       <p style="font-size:.8rem;color:var(--muted);margin-bottom:.75rem">
-        Colonne riconosciute: <b>nome</b> (studenti), <b>brief</b>, <b>codice persona</b>, <b>drive</b>,
+        Colonne riconosciute: <b>nome</b> (studenti), <b>brief</b>, <b>gruppo</b>, <b>codice persona</b>, <b>drive</b>,
         <b>professore</b>, <b>assistente</b>, <b>azienda</b>. Prima riga = intestazione.
       </p>
       <input type="file" id="xlsx-file" accept=".xlsx,.xls" onchange="handleXlsx(this)">
@@ -302,7 +302,8 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
       <div class="form-row" style="margin-top:.4rem">
         <div class="form-group"><label>Nome</label><input type="text" id="new-students-name" placeholder="Nome studente"></div>
         <div class="form-group"><label>Codice Persona</label><input type="text" id="new-st-code" placeholder="000000"></div>
-        <div class="form-group"><label>Brief/Gruppo</label><input type="text" id="new-st-brief" placeholder="A"></div>
+        <div class="form-group"><label>Brief</label><input type="text" id="new-st-brief" placeholder="es. PIRELLI"></div>
+        <div class="form-group"><label>Gruppo</label><input type="text" id="new-st-group" placeholder="es. Gruppo 1"></div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="addPerson('students')">+ Studente</button>
       <ul class="person-list" id="students-list" style="margin-top:.6rem"></ul>
@@ -626,6 +627,7 @@ function renderPeopleList(key) {
     if (key === 'students') {
       if (p.codicePersona) extras += ` <span class="codice">${esc(p.codicePersona)}</span>`;
       if (p.brief) extras += ` <span class="tag">${esc(p.brief)}</span>`;
+      if (p.group) extras += ` <span class="tag" style="background:var(--bg);color:var(--muted);border:1px solid var(--border)">👥 ${esc(p.group)}</span>`;
     }
     li.innerHTML = `<span class="pname">${esc(p.name)}${extras}</span>
       <button class="btn btn-danger btn-sm" onclick="deletePerson('${key}','${p.id}')">✕</button>`;
@@ -641,9 +643,11 @@ function addPerson(key) {
   if (key === 'students') {
     payload.codicePersona = document.getElementById('new-st-code')?.value.trim() || '';
     payload.brief = document.getElementById('new-st-brief')?.value.trim() || '';
+    payload.group = document.getElementById('new-st-group')?.value.trim() || '';
     payload.driveUrl = '';
     document.getElementById('new-st-code').value = '';
     document.getElementById('new-st-brief').value = '';
+    document.getElementById('new-st-group').value = '';
   }
   api('POST', `/api/${key}`, payload).then(() => { if (nameEl) nameEl.value = ''; });
 }
@@ -669,7 +673,8 @@ function handleXlsx(inp) {
     const findCol = (...cands) => keys.find(k => cands.some(c => norm(k).includes(c))) || null;
 
     const colNome   = findCol('nome','name','studente');
-    const colBrief  = findCol('brief','gruppo','group');
+    const colBrief  = findCol('brief');
+    const colGroup  = findCol('gruppo','group','team','squadra');
     const colCodice = findCol('codice','matricola','persona','student id');
     const colDrive  = findCol('drive','onedrive','link');
     const colProf   = findCol('professore','professor','prof');
@@ -683,6 +688,7 @@ function handleXlsx(inp) {
           id: 'p_'+Math.random().toString(36).slice(2),
           name: String(row[colNome]).trim(),
           brief: colBrief  ? String(row[colBrief]||'').trim()  : '',
+          group: colGroup  ? String(row[colGroup]||'').trim()  : '',
           codicePersona: colCodice ? String(row[colCodice]||'').trim() : '',
           driveUrl: colDrive  ? String(row[colDrive]||'').trim()  : ''
         });
@@ -764,6 +770,10 @@ async function deleteSession(id) {
   await api('DELETE',`/api/sessions/${id}`);
 }
 
+async function toggleByGroup(sessId, newVal) {
+  await api('PUT', `/api/sessions/${sessId}`, { byGroup: newVal });
+}
+
 async function addToSession(sessionId, role) {
   const keyMap = { professor:'professorIds', assistant:'assistantIds', companyRep:'companyRepIds' };
   const sel = document.getElementById(`sess-${role}-${sessionId}`);
@@ -793,6 +803,9 @@ function renderSessioni() {
       <div class="session-header">
         <span class="sname">${esc(sess.name)}</span>
         <span class="tag">${students.length} studenti</span>
+        <button class="btn btn-sm${sess.byGroup ? ' btn-primary' : ' btn-ghost'}" onclick="toggleByGroup('${sess.id}',${!sess.byGroup})" title="Modalità valutazione">
+          ${sess.byGroup ? '👥 Per gruppo' : '👤 Individuale'}
+        </button>
         <button class="btn btn-danger btn-sm" onclick="deleteSession('${sess.id}')">✕</button>
       </div>
       <div class="session-body">
@@ -899,71 +912,155 @@ function renderValuta() {
 
   const exam = getActiveExam();
   const evals = getActiveEvals();
-  let students = [...(S.students||[])];
-  if (query) students = students.filter(s =>
-    s.name.toLowerCase().includes(query) ||
-    (s.brief||'').toLowerCase().includes(query) ||
-    (s.codicePersona||'').toLowerCase().includes(query)
+  const areas = S.config?.areas || [];
+
+  // Detect if evaluator's session uses group mode
+  const evaluatorSession = (S.sessions||[]).find(sess =>
+    [...(sess.professorIds||[]), ...(sess.assistantIds||[]), ...(sess.companyRepIds||[])].includes(evalId)
   );
-  if (!students.length) { listDiv.innerHTML = '<div class="empty">Nessuno studente trovato.</div>'; return; }
+  const byGroup = !!(evaluatorSession?.byGroup);
 
-  students.forEach(st => {
-    const bc = briefColorClass(st.brief);
-    const card = document.createElement('div');
-    card.className = `student-card ${bc}`;
-    if (privacyMode) card.classList.add('privacy-mode');
-    card.dataset.studentId = st.id;
+  if (byGroup && evaluatorSession) {
+    // ── Group mode ──────────────────────────────────────────────
+    const sessionStudentIds = new Set(evaluatorSession.studentIds || []);
+    let sessStudents = (S.students||[]).filter(s => sessionStudentIds.has(s.id));
+    if (query) sessStudents = sessStudents.filter(s =>
+      s.name.toLowerCase().includes(query) ||
+      (s.group||'').toLowerCase().includes(query) ||
+      (s.brief||'').toLowerCase().includes(query) ||
+      (s.codicePersona||'').toLowerCase().includes(query)
+    );
+    if (!sessStudents.length) { listDiv.innerHTML = '<div class="empty">Nessuno studente trovato.</div>'; return; }
 
-    const ev = evals.find(e => e.studentId===st.id && e.evaluatorId===evalId) || { scores:{}, lodes:{}, comment:'' };
-    const areas = S.config?.areas || [];
-    const fin = computeFinal(st.id, evals);
+    // Group by `group` field; ungrouped students get their own card
+    const groupMap = new Map();
+    sessStudents.forEach(st => {
+      const key = (st.group||'').trim() || `\x00${st.id}`;
+      if (!groupMap.has(key)) groupMap.set(key, []);
+      groupMap.get(key).push(st);
+    });
 
-    let areasHtml = areas.map(a => {
-      const rawScore = ev.scores[a.id];
-      const hasLode  = ev.lodes?.[a.id];
-      const dispVal  = rawScore !== undefined ? (hasLode ? rawScore+'L' : String(rawScore)) : '';
-      return `<div class="area-input-wrap">
-        <span class="area-label">${esc(a.name)}</span>
-        <div class="score-wrap">
-          <input class="score-input${hasLode?' has-lode':''}" type="text" inputmode="decimal"
-            value="${esc(dispVal)}"
-            data-student="${st.id}" data-area="${a.id}"
-            data-evalid="${evalId}" data-evaltype="${evaluator.type}"
-            data-examid="${exam?.id||''}"
-            placeholder="—"
-            oninput="onScoreInput(this)"
-            onblur="saveScore(this)">
-        </div>
-      </div>`;
-    }).join('');
+    groupMap.forEach((members, groupKey) => {
+      const isNamed = !groupKey.startsWith('\x00');
+      const repSt = members[0];
+      const memberIds = members.map(m => m.id).join(',');
+      const bc = briefColorClass(repSt.brief);
+      const ev = evals.find(e => e.studentId===repSt.id && e.evaluatorId===evalId) || { scores:{}, lodes:{}, comment:'' };
+      const fin = computeFinal(repSt.id, evals);
 
-    const areaPreviewStr = areas.map(a => {
-      const v = computeAreaAvg(st.id, a.id, evals);
-      return v!==null ? v.toFixed(1) : '—';
-    }).join(' | ');
-
-    card.innerHTML = `
-      <div class="student-header" onclick="toggleCard(this)">
-        <span class="sname">${esc(st.name)}</span>
-        ${st.codicePersona ? `<span class="scode">${esc(st.codicePersona)}</span>` : ''}
-        ${st.brief ? `<span class="brief-badge">${esc(st.brief)}</span>` : ''}
-        <span class="final-badge" data-final="${st.id}">${fin!==null?fin.toFixed(1):'—'}</span>
-        ${st.driveUrl ? `<a href="${esc(st.driveUrl)}" target="_blank" class="btn btn-ghost btn-sm drive-link" onclick="event.stopPropagation()">OneDrive</a>` : ''}
-      </div>
-      <div class="student-body">
-        <div class="areas-grid">${areasHtml}</div>
-        <div class="grade-preview">Media aree: <span data-areapreview="${st.id}">${areaPreviewStr}</span></div>
-        <div class="comment-row">
-          <label>Commento</label>
-          <div class="comment-wrap">
-            <textarea data-comment="${st.id}" data-evalid="${evalId}"
-              data-evaltype="${evaluator.type}" data-examid="${exam?.id||''}"
-              placeholder="Note facoltative…" oninput="onCommentInput(this)">${esc(ev.comment||'')}</textarea>
+      const areasHtml = areas.map(a => {
+        const rawScore = ev.scores[a.id];
+        const hasLode  = ev.lodes?.[a.id];
+        const dispVal  = rawScore !== undefined ? (hasLode ? rawScore+'L' : String(rawScore)) : '';
+        return `<div class="area-input-wrap">
+          <span class="area-label">${esc(a.name)}</span>
+          <div class="score-wrap">
+            <input class="score-input${hasLode?' has-lode':''}" type="text" inputmode="decimal"
+              value="${esc(dispVal)}"
+              data-student="${repSt.id}" data-area="${a.id}"
+              data-evalid="${evalId}" data-evaltype="${evaluator.type}"
+              data-examid="${exam?.id||''}"
+              data-group-members="${memberIds}"
+              placeholder="—"
+              oninput="onScoreInput(this)"
+              onblur="saveScore(this)">
           </div>
+        </div>`;
+      }).join('');
+
+      const areaPreviewStr = areas.map(a => { const v=computeAreaAvg(repSt.id,a.id,evals); return v!==null?v.toFixed(1):'—'; }).join(' | ');
+      const membersHtml = members.map(m => `<span class="tag" style="font-weight:500">${esc(m.name)}${m.codicePersona?` <span style="opacity:.7;font-size:.7em">${esc(m.codicePersona)}</span>`:''}</span>`).join(' ');
+
+      const card = document.createElement('div');
+      card.className = `student-card ${bc}`;
+      if (privacyMode) card.classList.add('privacy-mode');
+      card.innerHTML = `
+        <div class="student-header" onclick="toggleCard(this)">
+          <span class="sname">${isNamed ? '👥 '+esc(groupKey) : esc(repSt.name)}</span>
+          ${repSt.brief ? `<span class="brief-badge">${esc(repSt.brief)}</span>` : ''}
+          <span class="final-badge" data-final="${repSt.id}">${fin!==null?fin.toFixed(1):'—'}</span>
         </div>
-      </div>`;
-    listDiv.appendChild(card);
-  });
+        <div class="student-body">
+          ${isNamed ? `<div class="chip-list" style="margin-bottom:.5rem">${membersHtml}</div>` : ''}
+          <div class="areas-grid">${areasHtml}</div>
+          <div class="grade-preview">Media aree: <span data-areapreview="${repSt.id}">${areaPreviewStr}</span></div>
+          <div class="comment-row">
+            <label>Commento</label>
+            <div class="comment-wrap">
+              <textarea data-comment="${repSt.id}" data-evalid="${evalId}"
+                data-evaltype="${evaluator.type}" data-examid="${exam?.id||''}"
+                data-group-members="${memberIds}"
+                placeholder="Note facoltative…" oninput="onCommentInput(this)">${esc(ev.comment||'')}</textarea>
+            </div>
+          </div>
+        </div>`;
+      listDiv.appendChild(card);
+    });
+
+  } else {
+    // ── Individual mode (existing) ──────────────────────────────
+    let students = [...(S.students||[])];
+    if (query) students = students.filter(s =>
+      s.name.toLowerCase().includes(query) ||
+      (s.brief||'').toLowerCase().includes(query) ||
+      (s.codicePersona||'').toLowerCase().includes(query)
+    );
+    if (!students.length) { listDiv.innerHTML = '<div class="empty">Nessuno studente trovato.</div>'; return; }
+
+    students.forEach(st => {
+      const bc = briefColorClass(st.brief);
+      const card = document.createElement('div');
+      card.className = `student-card ${bc}`;
+      if (privacyMode) card.classList.add('privacy-mode');
+      card.dataset.studentId = st.id;
+
+      const ev = evals.find(e => e.studentId===st.id && e.evaluatorId===evalId) || { scores:{}, lodes:{}, comment:'' };
+      const fin = computeFinal(st.id, evals);
+
+      const areasHtml = areas.map(a => {
+        const rawScore = ev.scores[a.id];
+        const hasLode  = ev.lodes?.[a.id];
+        const dispVal  = rawScore !== undefined ? (hasLode ? rawScore+'L' : String(rawScore)) : '';
+        return `<div class="area-input-wrap">
+          <span class="area-label">${esc(a.name)}</span>
+          <div class="score-wrap">
+            <input class="score-input${hasLode?' has-lode':''}" type="text" inputmode="decimal"
+              value="${esc(dispVal)}"
+              data-student="${st.id}" data-area="${a.id}"
+              data-evalid="${evalId}" data-evaltype="${evaluator.type}"
+              data-examid="${exam?.id||''}"
+              placeholder="—"
+              oninput="onScoreInput(this)"
+              onblur="saveScore(this)">
+          </div>
+        </div>`;
+      }).join('');
+
+      const areaPreviewStr = areas.map(a => { const v=computeAreaAvg(st.id,a.id,evals); return v!==null?v.toFixed(1):'—'; }).join(' | ');
+
+      card.innerHTML = `
+        <div class="student-header" onclick="toggleCard(this)">
+          <span class="sname">${esc(st.name)}</span>
+          ${st.codicePersona ? `<span class="scode">${esc(st.codicePersona)}</span>` : ''}
+          ${st.brief ? `<span class="brief-badge">${esc(st.brief)}</span>` : ''}
+          <span class="final-badge" data-final="${st.id}">${fin!==null?fin.toFixed(1):'—'}</span>
+          ${st.driveUrl ? `<a href="${esc(st.driveUrl)}" target="_blank" class="btn btn-ghost btn-sm drive-link" onclick="event.stopPropagation()">OneDrive</a>` : ''}
+        </div>
+        <div class="student-body">
+          <div class="areas-grid">${areasHtml}</div>
+          <div class="grade-preview">Media aree: <span data-areapreview="${st.id}">${areaPreviewStr}</span></div>
+          <div class="comment-row">
+            <label>Commento</label>
+            <div class="comment-wrap">
+              <textarea data-comment="${st.id}" data-evalid="${evalId}"
+                data-evaltype="${evaluator.type}" data-examid="${exam?.id||''}"
+                placeholder="Note facoltative…" oninput="onCommentInput(this)">${esc(ev.comment||'')}</textarea>
+            </div>
+          </div>
+        </div>`;
+      listDiv.appendChild(card);
+    });
+  }
 }
 
 function toggleCard(header) {
@@ -988,20 +1085,22 @@ async function saveScore(inp) {
   const hasL  = raw.endsWith('L');
   const num   = parseFloat(raw.replace(/L/g,''));
   const areaId   = inp.dataset.area;
-  const studentId= inp.dataset.student;
   const evalId   = inp.dataset.evalid;
   const evalType = inp.dataset.evaltype;
   const examId   = inp.dataset.examid;
   const scoreMax = S.config?.scoreMax || 30;
+  const members  = inp.dataset.groupMembers ? inp.dataset.groupMembers.split(',') : [inp.dataset.student];
 
   const scoreVal = raw === '' ? null : (isNaN(num) ? null : Math.min(Math.max(0, num), scoreMax));
   const lodeVal  = hasL && scoreVal === scoreMax;
 
-  await api('PUT', `/api/exams/${examId}/evaluations`, {
-    studentId, evaluatorId: evalId, evaluatorType: evalType,
-    scores: { [areaId]: scoreVal },
-    lodes:  { [areaId]: lodeVal }
-  });
+  await Promise.all(members.map(studentId =>
+    api('PUT', `/api/exams/${examId}/evaluations`, {
+      studentId, evaluatorId: evalId, evaluatorType: evalType,
+      scores: { [areaId]: scoreVal },
+      lodes:  { [areaId]: lodeVal }
+    })
+  ));
 }
 
 const commentTimers = {};
@@ -1013,12 +1112,14 @@ function onCommentInput(ta) {
 
 async function saveComment(ta) {
   const examId   = ta.dataset.examid;
-  const studentId= ta.dataset.comment;
   const evalId   = ta.dataset.evalid;
   const evalType = ta.dataset.evaltype;
-  await api('PUT', `/api/exams/${examId}/evaluations`, {
-    studentId, evaluatorId: evalId, evaluatorType: evalType, comment: ta.value
-  });
+  const members  = ta.dataset.groupMembers ? ta.dataset.groupMembers.split(',') : [ta.dataset.comment];
+  await Promise.all(members.map(studentId =>
+    api('PUT', `/api/exams/${examId}/evaluations`, {
+      studentId, evaluatorId: evalId, evaluatorType: evalType, comment: ta.value
+    })
+  ));
 }
 
 // ── Grade computation ──────────────────────────
@@ -1130,11 +1231,11 @@ function exportExcel() {
   const wb = XLSX.utils.book_new();
 
   // Sheet 1: Riepilogo
-  const sumHeader = ['Studente','Codice Persona','Brief',...areas.map(a=>a.name),'Voto Finale','Link OneDrive'];
+  const sumHeader = ['Studente','Codice Persona','Brief','Gruppo',...areas.map(a=>a.name),'Voto Finale','Link OneDrive'];
   const sumRows = (S.students||[]).map(st => {
     const fin = computeFinal(st.id, evals);
     return [
-      st.name, st.codicePersona||'', st.brief||'',
+      st.name, st.codicePersona||'', st.brief||'', st.group||'',
       ...areas.map(a => { const v=computeAreaAvg(st.id,a.id,evals); return v!==null?+v.toFixed(2):''; }),
       fin!==null?+fin.toFixed(2):'',
       st.driveUrl||exam?.driveUrl||''
@@ -1143,13 +1244,13 @@ function exportExcel() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sumHeader,...sumRows]), 'Riepilogo');
 
   // Sheet 2: Valutazioni dettagliate
-  const detHeader = ['Studente','Codice Persona','Brief','Valutatore','Ruolo',...areas.map(a=>a.name),'Commento'];
+  const detHeader = ['Studente','Codice Persona','Brief','Gruppo','Valutatore','Ruolo',...areas.map(a=>a.name),'Commento'];
   const detRows = [];
   (S.students||[]).forEach(st => {
     evals.filter(e=>e.studentId===st.id).forEach(e => {
       const ev = allEvs.find(x=>x.id===e.evaluatorId);
       detRows.push([
-        st.name, st.codicePersona||'', st.brief||'',
+        st.name, st.codicePersona||'', st.brief||'', st.group||'',
         ev?.name||e.evaluatorId, ev?.role||e.evaluatorType,
         ...areas.map(a => {
           const v=e.scores?.[a.id]; const L=e.lodes?.[a.id];
@@ -1162,9 +1263,9 @@ function exportExcel() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([detHeader,...detRows]), 'Valutazioni Dettagliate');
 
   // Sheet 3: Partecipanti
-  const parHeader = ['Nome','Tipo','Brief','Codice Persona','Link OneDrive'];
+  const parHeader = ['Nome','Tipo','Brief','Gruppo','Codice Persona','Link OneDrive'];
   const parRows = [
-    ...(S.students||[]).map(s=>[s.name,'Studente',s.brief||'',s.codicePersona||'',s.driveUrl||'']),
+    ...(S.students||[]).map(s=>[s.name,'Studente',s.brief||'',s.group||'',s.codicePersona||'',s.driveUrl||'']),
     ...(S.professors||[]).map(p=>[p.name,'Professore','','','']),
     ...(S.assistants||[]).map(p=>[p.name,'Assistente','','','']),
     ...(S.companyReps||[]).map(p=>[p.name,'Azienda','','',''])
