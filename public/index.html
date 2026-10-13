@@ -1258,48 +1258,57 @@ function exportExcel() {
   const exam   = getActiveExam();
   const evals  = exam?.evaluations || [];
   const areas  = S.config?.areas || [];
-  const allEvs = buildEvaluatorList().map(e=>({...e,role:e.type==='professor'?'Professore':e.type==='assistant'?'Assistente':'Azienda'}));
+  const allEvs = buildEvaluatorList().map(e=>({
+    ...e,
+    role: e.type==='professor'?'Professore':e.type==='assistant'?'Assistente':'Azienda'
+  }));
   const wb = XLSX.utils.book_new();
 
-  // Sheet 1: Riepilogo
-  const sumHeader = ['Studente','Codice Persona','Brief','Gruppo',...areas.map(a=>a.name),'Voto Finale','Link OneDrive'];
+  // ── Sheet 1: Riepilogo (wide format) ──────────────────────────
+  // Summary columns first, then per-evaluator columns.
+  // Hide right-side columns in Excel to get the clean summary view.
+  const evalCols = allEvs.flatMap(ev => [
+    ...areas.map(a => `${ev.name} — ${a.name}`),
+    `${ev.name} — Commento`
+  ]);
+  const sumHeader = [
+    'Studente', 'Codice Persona', 'Brief', 'Gruppo',
+    ...areas.map(a => a.name + ' (media pond.)'),
+    'Voto Finale', 'Link OneDrive',
+    ...evalCols
+  ];
   const sumRows = (S.students||[]).map(st => {
     const fin = computeFinal(st.id, evals);
+    const stEvals = evals.filter(e => e.studentId === st.id);
+    const evalData = allEvs.flatMap(ev => {
+      const entry = stEvals.find(e => e.evaluatorId === ev.id);
+      return [
+        ...areas.map(a => {
+          if (!entry) return '';
+          const v = entry.scores?.[a.id];
+          const L = entry.lodes?.[a.id];
+          return v !== undefined ? (L ? `${v}L` : v) : '';
+        }),
+        entry?.comment || ''
+      ];
+    });
     return [
       st.name, st.codicePersona||'', st.brief||'', st.group||'',
       ...areas.map(a => { const v=computeAreaAvg(st.id,a.id,evals); return v!==null?+v.toFixed(2):''; }),
       fin!==null?+fin.toFixed(2):'',
-      st.driveUrl||exam?.driveUrl||''
+      st.driveUrl||exam?.driveUrl||'',
+      ...evalData
     ];
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sumHeader,...sumRows]), 'Riepilogo');
 
-  // Sheet 2: Valutazioni dettagliate
-  const detHeader = ['Studente','Codice Persona','Brief','Gruppo','Valutatore','Ruolo',...areas.map(a=>a.name),'Commento'];
-  const detRows = [];
-  (S.students||[]).forEach(st => {
-    evals.filter(e=>e.studentId===st.id).forEach(e => {
-      const ev = allEvs.find(x=>x.id===e.evaluatorId);
-      detRows.push([
-        st.name, st.codicePersona||'', st.brief||'', st.group||'',
-        ev?.name||e.evaluatorId, ev?.role||e.evaluatorType,
-        ...areas.map(a => {
-          const v=e.scores?.[a.id]; const L=e.lodes?.[a.id];
-          return v!==undefined?(L?`${v}L`:v):'';
-        }),
-        e.comment||''
-      ]);
-    });
-  });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([detHeader,...detRows]), 'Valutazioni Dettagliate');
-
-  // Sheet 3: Partecipanti
+  // ── Sheet 2: Partecipanti ──────────────────────────────────────
   const parHeader = ['Nome','Tipo','Brief','Gruppo','Codice Persona','Link OneDrive'];
   const parRows = [
     ...(S.students||[]).map(s=>[s.name,'Studente',s.brief||'',s.group||'',s.codicePersona||'',s.driveUrl||'']),
-    ...(S.professors||[]).map(p=>[p.name,'Professore','','','']),
-    ...(S.assistants||[]).map(p=>[p.name,'Assistente','','','']),
-    ...(S.companyReps||[]).map(p=>[p.name,'Azienda','','',''])
+    ...(S.professors||[]).map(p=>[p.name,'Professore','','','','']),
+    ...(S.assistants||[]).map(p=>[p.name,'Assistente','','','','']),
+    ...(S.companyReps||[]).map(p=>[p.name,'Azienda','','','',''])
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([parHeader,...parRows]), 'Partecipanti');
 
