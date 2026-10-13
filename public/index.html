@@ -203,6 +203,15 @@ textarea { resize:vertical; min-height:60px; }
 .session-header .sname { flex:1; font-weight:700; font-size:.88rem; color:var(--primary); }
 .session-body { padding:.75rem 1rem; }
 
+/* ── Export modal ─────────────────────────────── */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:500; display:flex; align-items:center; justify-content:center; }
+.modal-box { background:var(--card); border-radius:var(--radius); padding:1.5rem; width:min(380px,90vw); box-shadow:0 8px 32px rgba(0,0,0,.18); }
+.modal-title { font-weight:700; font-size:.95rem; margin-bottom:1rem; color:var(--primary); }
+.export-opt { display:flex; align-items:center; gap:.6rem; padding:.3rem 0; font-size:.87rem; cursor:pointer; border-bottom:1px solid var(--border); }
+.export-opt:last-child { border-bottom:none; }
+.export-opt input[type=checkbox] { width:1rem; height:1rem; cursor:pointer; accent-color:var(--primary); flex-shrink:0; }
+.export-opt-note { font-size:.75rem; color:var(--muted); }
+
 /* ── Misc ─────────────────────────────────────── */
 .row2 { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
 @media (max-width:480px) { .row2 { grid-template-columns:1fr; } }
@@ -402,10 +411,23 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
   <div id="tab-risultati" class="tab-content" style="display:none">
     <div class="exam-strip" id="risultati-exam-strip"></div>
     <div class="toolbar">
-      <button class="btn btn-primary btn-sm" onclick="exportExcel()">Esporta Excel</button>
+      <button class="btn btn-primary btn-sm" onclick="openExportModal()">Esporta Excel</button>
       <a id="drive-link-btn" href="#" target="_blank" class="btn btn-ghost btn-sm" style="display:none">Apri OneDrive</a>
     </div>
     <div id="risultati-content"></div>
+  </div>
+
+  <!-- ═══ EXPORT MODAL ═══ -->
+  <div id="export-modal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <div class="modal-title">Seleziona colonne da esportare</div>
+      <div style="font-size:.78rem;color:var(--muted);margin-bottom:.75rem">Il nome studente è sempre incluso.</div>
+      <div id="export-opts-list"></div>
+      <div style="display:flex;gap:.5rem;margin-top:1.25rem;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="closeExportModal()">Annulla</button>
+        <button class="btn btn-primary" onclick="doExportExcel()">Esporta</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1254,55 +1276,96 @@ function toggleDetail(span, studentId) {
 // ══════════════════════════════════════════════
 // Export Excel
 // ══════════════════════════════════════════════
-function exportExcel() {
+// ══════════════════════════════════════════════
+// Export modal
+// ══════════════════════════════════════════════
+const EXPORT_OPTS = [
+  { id:'codice',        label:'Codice Persona',                  def:true  },
+  { id:'brief',         label:'Brief',                           def:true  },
+  { id:'gruppo',        label:'Gruppo',                          def:true  },
+  { id:'area_avgs',     label:'Medie ponderate per area',        def:true  },
+  { id:'finale',        label:'Voto Finale',                     def:true  },
+  { id:'drive',         label:'Link OneDrive',                   def:false },
+  { id:'eval_scores',   label:'Voti individuali per valutatore', def:true  },
+  { id:'eval_comments', label:'Commenti per valutatore',         def:true  },
+];
+
+function openExportModal() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('evalpoli_export_opts') || '{}'); } catch(e) {}
+  const list = document.getElementById('export-opts-list');
+  list.innerHTML = '';
+  EXPORT_OPTS.forEach(o => {
+    const checked = o.id in saved ? saved[o.id] : o.def;
+    const lbl = document.createElement('label');
+    lbl.className = 'export-opt';
+    lbl.innerHTML = `<input type="checkbox" id="expopt-${o.id}" ${checked?'checked':''}><span>${o.label}</span>`;
+    list.appendChild(lbl);
+  });
+  document.getElementById('export-modal').style.display = 'flex';
+}
+
+function closeExportModal() {
+  document.getElementById('export-modal').style.display = 'none';
+}
+
+function doExportExcel() {
+  const opts = {};
+  EXPORT_OPTS.forEach(o => {
+    opts[o.id] = document.getElementById(`expopt-${o.id}`).checked;
+  });
+  try { localStorage.setItem('evalpoli_export_opts', JSON.stringify(opts)); } catch(e) {}
+  closeExportModal();
+  exportExcel(opts);
+}
+
+function exportExcel(opts) {
   const exam   = getActiveExam();
   const evals  = exam?.evaluations || [];
   const areas  = S.config?.areas || [];
   const allEvs = buildEvaluatorList().map(e=>({
-    ...e,
-    role: e.type==='professor'?'Professore':e.type==='assistant'?'Assistente':'Azienda'
+    ...e, role: e.type==='professor'?'Professore':e.type==='assistant'?'Assistente':'Azienda'
   }));
   const wb = XLSX.utils.book_new();
 
-  // ── Sheet 1: Riepilogo (wide format) ──────────────────────────
-  // Summary columns first, then per-evaluator columns.
-  // Hide right-side columns in Excel to get the clean summary view.
-  const evalCols = allEvs.flatMap(ev => [
-    ...areas.map(a => `${ev.name} — ${a.name}`),
-    `${ev.name} — Commento`
-  ]);
-  const sumHeader = [
-    'Studente', 'Codice Persona', 'Brief', 'Gruppo',
-    ...areas.map(a => a.name + ' (media pond.)'),
-    'Voto Finale', 'Link OneDrive',
-    ...evalCols
-  ];
-  const sumRows = (S.students||[]).map(st => {
+  // ── Sheet 1: Riepilogo ────────────────────────
+  const header = ['Studente'];
+  if (opts.codice)   header.push('Codice Persona');
+  if (opts.brief)    header.push('Brief');
+  if (opts.gruppo)   header.push('Gruppo');
+  if (opts.area_avgs) areas.forEach(a => header.push(a.name + ' (media pond.)'));
+  if (opts.finale)   header.push('Voto Finale');
+  if (opts.drive)    header.push('Link OneDrive');
+  if (opts.eval_scores || opts.eval_comments) {
+    allEvs.forEach(ev => {
+      if (opts.eval_scores)   areas.forEach(a => header.push(`${ev.name} — ${a.name}`));
+      if (opts.eval_comments) header.push(`${ev.name} — Commento`);
+    });
+  }
+
+  const rows = (S.students||[]).map(st => {
     const fin = computeFinal(st.id, evals);
     const stEvals = evals.filter(e => e.studentId === st.id);
-    const evalData = allEvs.flatMap(ev => {
-      const entry = stEvals.find(e => e.evaluatorId === ev.id);
-      return [
-        ...areas.map(a => {
-          if (!entry) return '';
-          const v = entry.scores?.[a.id];
-          const L = entry.lodes?.[a.id];
-          return v !== undefined ? (L ? `${v}L` : v) : '';
-        }),
-        entry?.comment || ''
-      ];
-    });
-    return [
-      st.name, st.codicePersona||'', st.brief||'', st.group||'',
-      ...areas.map(a => { const v=computeAreaAvg(st.id,a.id,evals); return v!==null?+v.toFixed(2):''; }),
-      fin!==null?+fin.toFixed(2):'',
-      st.driveUrl||exam?.driveUrl||'',
-      ...evalData
-    ];
+    const row = [st.name];
+    if (opts.codice)   row.push(st.codicePersona||'');
+    if (opts.brief)    row.push(st.brief||'');
+    if (opts.gruppo)   row.push(st.group||'');
+    if (opts.area_avgs) areas.forEach(a => { const v=computeAreaAvg(st.id,a.id,evals); row.push(v!==null?+v.toFixed(2):''); });
+    if (opts.finale)   row.push(fin!==null?+fin.toFixed(2):'');
+    if (opts.drive)    row.push(st.driveUrl||exam?.driveUrl||'');
+    if (opts.eval_scores || opts.eval_comments) {
+      allEvs.forEach(ev => {
+        const entry = stEvals.find(e => e.evaluatorId === ev.id);
+        if (opts.eval_scores)   areas.forEach(a => { const v=entry?.scores?.[a.id]; const L=entry?.lodes?.[a.id]; row.push(v!==undefined?(L?`${v}L`:v):''); });
+        if (opts.eval_comments) row.push(entry?.comment||'');
+      });
+    }
+    return row;
   });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sumHeader,...sumRows]), 'Riepilogo');
 
-  // ── Sheet 2: Partecipanti ──────────────────────────────────────
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header,...rows]), 'Riepilogo');
+
+  // ── Sheet 2: Partecipanti ─────────────────────
   const parHeader = ['Nome','Tipo','Brief','Gruppo','Codice Persona','Link OneDrive'];
   const parRows = [
     ...(S.students||[]).map(s=>[s.name,'Studente',s.brief||'',s.group||'',s.codicePersona||'',s.driveUrl||'']),
