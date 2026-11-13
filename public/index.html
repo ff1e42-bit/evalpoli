@@ -367,6 +367,12 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
         </label>
       </div>
     </div>
+
+    <div class="card">
+      <div class="card-title" style="color:var(--danger)">Zona pericolosa</div>
+      <p style="font-size:.82rem;color:var(--muted);margin-bottom:.75rem">Azzera tutte le valutazioni mantenendo studenti, professori, assistenti e configurazione.</p>
+      <button class="btn btn-danger" onclick="clearEvaluations()">🗑 Azzera tutte le valutazioni</button>
+    </div>
   </div>
 
   <!-- ═══ SESSIONI ═══ -->
@@ -396,6 +402,7 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
   <div id="tab-valuta" class="tab-content" style="display:none">
     <div class="exam-strip" id="valuta-exam-strip"></div>
     <div class="toolbar">
+      <select id="session-filter" style="min-width:130px" onchange="renderValuta()" id="session-filter"></select>
       <select id="evaluator-select" style="flex:1;min-width:160px" onchange="renderValuta()">
         <option value="">-- Seleziona valutatore --</option>
       </select>
@@ -764,6 +771,11 @@ async function changePassword() {
   } catch(e) { msg.innerHTML = `<div class="msg msg-err">${e.message}</div>`; }
 }
 
+async function clearEvaluations() {
+  if (!confirm('Eliminare TUTTE le valutazioni da tutte le prove?\nStudenti, professori e configurazione rimarranno invariati.\n\nQuesta azione non può essere annullata.')) return;
+  await api('DELETE', '/api/evaluations');
+}
+
 async function exportBackup() {
   const data = await api('GET','/api/state');
   const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -923,6 +935,19 @@ function buildEvaluatorList() {
 function renderValuta() {
   renderExamStrips();
 
+  // ── Session filter ──────────────────────────────
+  const sessSel = document.getElementById('session-filter');
+  const currentSessId = sessSel.value;
+  sessSel.innerHTML = '<option value="">Tutti gli studenti</option>';
+  (S.sessions||[]).forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id; opt.textContent = s.name;
+    sessSel.appendChild(opt);
+  });
+  if (currentSessId) sessSel.value = currentSessId;
+  sessSel.style.display = (S.sessions||[]).length > 0 ? '' : 'none';
+
+  // ── Evaluator selector ──────────────────────────
   const sel = document.getElementById('evaluator-select');
   const currentEvalId = sel.value;
   sel.innerHTML = '<option value="">-- Seleziona valutatore --</option>';
@@ -945,6 +970,12 @@ function renderValuta() {
   const exam = getActiveExam();
   const evals = getActiveEvals();
   const areas = S.config?.areas || [];
+
+  // ── Apply session filter ────────────────────────
+  const activeSessId = sessSel.value;
+  const sessionStudentIds = activeSessId
+    ? new Set((S.sessions||[]).find(s => s.id === activeSessId)?.studentIds || [])
+    : null;
   const scoreMax = S.config?.scoreMax || 30;
 
   function makeLodeCb(repId, memberIds, ev) {
@@ -984,6 +1015,7 @@ function renderValuta() {
   if (byGroupMode) {
     // ── Group mode: all students, grouped by group field ──────────
     let students = [...(S.students||[])];
+    if (sessionStudentIds) students = students.filter(s => sessionStudentIds.has(s.id));
     if (query) students = students.filter(s =>
       s.name.toLowerCase().includes(query) ||
       (s.group||'').toLowerCase().includes(query) ||
@@ -1039,6 +1071,7 @@ function renderValuta() {
   } else {
     // ── Individual mode ───────────────────────────────────────────
     let students = [...(S.students||[])];
+    if (sessionStudentIds) students = students.filter(s => sessionStudentIds.has(s.id));
     if (query) students = students.filter(s =>
       s.name.toLowerCase().includes(query) ||
       (s.brief||'').toLowerCase().includes(query) ||

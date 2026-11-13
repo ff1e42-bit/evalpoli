@@ -254,6 +254,12 @@ app.put('/api/exams/:id', auth, (req, res) => {
   res.json(exam);
 });
 
+app.delete('/api/evaluations', auth, (req, res) => {
+  state.exams.forEach(ex => { ex.evaluations = []; });
+  save();
+  res.json({ ok: true });
+});
+
 app.delete('/api/exams/:id', auth, (req, res) => {
   if (state.exams.length <= 1) return res.status(400).json({ error: 'Deve esistere almeno una prova' });
   state.exams = state.exams.filter(e => e.id !== req.params.id);
