@@ -212,6 +212,20 @@ textarea { resize:vertical; min-height:60px; }
 .export-opt input[type=checkbox] { width:1rem; height:1rem; cursor:pointer; accent-color:var(--primary); flex-shrink:0; }
 .export-opt-note { font-size:.75rem; color:var(--muted); }
 
+/* ── Identity / session picker ───────────────── */
+.picker-btn {
+  display:block; width:100%; text-align:left; padding:.7rem 1rem;
+  margin-bottom:.4rem; border:1.5px solid var(--border); border-radius:8px;
+  background:var(--card); cursor:pointer; font-size:.92rem; font-weight:600;
+  transition:border-color .15s,background .15s,color .15s; font-family:inherit;
+}
+.picker-btn:hover { border-color:var(--primary); background:var(--primary-light); color:var(--primary); }
+.picker-btn.session-btn { border-color:var(--primary); background:var(--primary-light); color:var(--primary); padding:.85rem 1rem; }
+.picker-btn.session-btn:hover { background:var(--primary); color:#fff; }
+.admin-link { display:block; margin-top:1rem; font-size:.8rem; color:var(--muted); cursor:pointer; text-decoration:underline; background:none; border:none; font-family:inherit; }
+.evaluator-badge { font-size:.8rem; color:var(--muted); font-weight:600; }
+body.evaluator-mode .admin-tab { display:none; }
+
 /* ── Misc ─────────────────────────────────────── */
 .row2 { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
 @media (max-width:480px) { .row2 { grid-template-columns:1fr; } }
@@ -229,9 +243,10 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
 </head>
 <body>
 
-<!-- Auth overlay -->
+<!-- Auth overlay (3 screens) -->
 <div id="auth-overlay">
-  <div class="auth-box">
+  <!-- Screen 1: password -->
+  <div id="screen-pw" class="auth-box">
     <h1>EvalPoli</h1>
     <p id="auth-subtitle">Caricamento…</p>
     <form id="auth-form" style="display:none">
@@ -240,19 +255,35 @@ hr.section { border:none; border-top:1px solid var(--border); margin:1rem 0; }
       <div id="auth-err" class="msg msg-err" style="display:none;margin-top:.5rem"></div>
     </form>
   </div>
+  <!-- Screen 2: chi sei? -->
+  <div id="screen-identity" class="auth-box" style="display:none">
+    <h1>Chi sei?</h1>
+    <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem">Seleziona il tuo nome</p>
+    <div id="identity-list"></div>
+    <button class="admin-link" onclick="enterAsAdmin()">Accedi come admin →</button>
+  </div>
+  <!-- Screen 3: sessione -->
+  <div id="screen-sessions" class="auth-box" style="display:none">
+    <h1>Quale sessione?</h1>
+    <p id="session-screen-subtitle" style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem"></p>
+    <div id="session-select-list"></div>
+    <button class="admin-link" onclick="showIdentityScreen()">← Indietro</button>
+  </div>
 </div>
 
 <div id="app" style="display:none">
   <header>
     <h1>EvalPoli</h1>
     <span class="header-meta" id="course-name-display"></span>
+    <span class="evaluator-badge" id="evaluator-display" style="display:none"></span>
+    <button class="btn btn-ghost btn-sm" id="switch-user-btn" style="display:none" onclick="switchUser()">Cambia</button>
     <button class="btn btn-ghost btn-sm privacy-btn" id="privacy-btn" title="Nascondi voti agli studenti">👁 Privato</button>
   </header>
   <div class="nav-tabs">
-    <button class="nav-tab active" onclick="showTab('setup')">Setup</button>
-    <button class="nav-tab" onclick="showTab('sessioni')">Sessioni</button>
+    <button class="nav-tab admin-tab active" onclick="showTab('setup')">Setup</button>
+    <button class="nav-tab admin-tab" onclick="showTab('sessioni')">Sessioni</button>
     <button class="nav-tab" onclick="showTab('valuta')">Valuta</button>
-    <button class="nav-tab" onclick="showTab('risultati')">Risultati</button>
+    <button class="nav-tab admin-tab" onclick="showTab('risultati')">Risultati</button>
   </div>
 
   <!-- ═══ SETUP ═══ -->
@@ -450,6 +481,10 @@ let currentTab = 'setup';
 let activeExamId = null;
 let privacyMode = false;
 let byGroupMode = false;
+let myEvaluatorId   = sessionStorage.getItem('evalpoli_evaluator_id') || '';
+let myEvaluatorType = sessionStorage.getItem('evalpoli_evaluator_type') || '';
+let mySessionId     = sessionStorage.getItem('evalpoli_session_id') || '';
+let isAdmin         = sessionStorage.getItem('evalpoli_is_admin') === '1';
 
 const BRIEF_COLORS = ['brief-color-0','brief-color-1','brief-color-2','brief-color-3','brief-color-4','brief-color-5','brief-color-6','brief-color-7','brief-color-8','brief-color-9'];
 const briefColorMap = {};
@@ -502,8 +537,7 @@ async function init() {
       token = res.token;
       sessionStorage.setItem('evalpoli_token', token);
       await loadState();
-      document.getElementById('auth-overlay').style.display = 'none';
-      document.getElementById('app').style.display = 'flex';
+      showIdentityScreen();
     } catch(ex) { err.textContent = ex.message; err.style.display = ''; }
   };
 }
@@ -848,7 +882,9 @@ function renderSessioni() {
     const card = document.createElement('div'); card.className = 'session-card';
     card.innerHTML = `
       <div class="session-header">
-        <span class="sname">${esc(sess.name)}</span>
+        <input type="text" class="sname" value="${esc(sess.name)}"
+          style="background:transparent;border:none;border-bottom:1px dashed var(--primary);cursor:text;padding:0;min-width:80px"
+          onchange="api('PUT','/api/sessions/${sess.id}',{name:this.value}).then(()=>loadState())">
         <span class="tag">${students.length} studenti</span>
         <button class="btn btn-danger btn-sm" onclick="deleteSession('${sess.id}')">✕</button>
       </div>
@@ -937,7 +973,7 @@ function renderValuta() {
 
   // ── Session filter ──────────────────────────────
   const sessSel = document.getElementById('session-filter');
-  const currentSessId = sessSel.value;
+  const currentSessId = mySessionId || sessSel.value;
   sessSel.innerHTML = '<option value="">Tutti gli studenti</option>';
   (S.sessions||[]).forEach(s => {
     const opt = document.createElement('option');
@@ -945,11 +981,11 @@ function renderValuta() {
     sessSel.appendChild(opt);
   });
   if (currentSessId) sessSel.value = currentSessId;
-  sessSel.style.display = (S.sessions||[]).length > 0 ? '' : 'none';
+  sessSel.style.display = (myEvaluatorId || (S.sessions||[]).length === 0) ? 'none' : '';
 
   // ── Evaluator selector ──────────────────────────
   const sel = document.getElementById('evaluator-select');
-  const currentEvalId = sel.value;
+  const currentEvalId = myEvaluatorId || sel.value;
   sel.innerHTML = '<option value="">-- Seleziona valutatore --</option>';
   const allEvaluators = buildEvaluatorList();
   allEvaluators.forEach(ev => {
@@ -958,6 +994,7 @@ function renderValuta() {
     sel.appendChild(opt);
   });
   if (currentEvalId) sel.value = currentEvalId;
+  sel.style.display = myEvaluatorId ? 'none' : '';
 
   const evalId = sel.value;
   const evaluator = allEvaluators.find(e => e.id === evalId);
@@ -1420,6 +1457,105 @@ function esc(s) {
 }
 
 // ══════════════════════════════════════════════
+// Identity / session picker
+// ══════════════════════════════════════════════
+function showIdentityScreen() {
+  const all = buildEvaluatorList();
+  const div = document.getElementById('identity-list');
+  div.innerHTML = '';
+  if (!all.length) { enterAsAdmin(); return; }
+  all.forEach(ev => {
+    const btn = document.createElement('button');
+    btn.className = 'picker-btn';
+    btn.textContent = ev.label;
+    btn.onclick = () => selectEvaluator(ev.id, ev.type);
+    div.appendChild(btn);
+  });
+  document.getElementById('screen-pw').style.display = 'none';
+  document.getElementById('screen-identity').style.display = '';
+  document.getElementById('screen-sessions').style.display = 'none';
+  document.getElementById('auth-overlay').style.display = 'flex';
+}
+
+function showSessionScreen(evalId, evalType) {
+  const keyMap = { professor:'professorIds', assistant:'assistantIds', companyRep:'companyRepIds' };
+  const key = keyMap[evalType];
+  const mySessions = (S.sessions||[]).filter(s => (s[key]||[]).includes(evalId));
+  if (mySessions.length === 0) { selectSession(null, evalId, evalType); return; }
+  if (mySessions.length === 1) { selectSession(mySessions[0].id, evalId, evalType); return; }
+  const div = document.getElementById('session-select-list');
+  div.innerHTML = '';
+  document.getElementById('session-screen-subtitle').textContent = buildEvaluatorList().find(e=>e.id===evalId)?.label || '';
+  mySessions.forEach(sess => {
+    const btn = document.createElement('button');
+    btn.className = 'picker-btn session-btn';
+    btn.textContent = `${sess.name}  (${(sess.studentIds||[]).length} studenti)`;
+    btn.onclick = () => selectSession(sess.id, evalId, evalType);
+    div.appendChild(btn);
+  });
+  document.getElementById('screen-pw').style.display = 'none';
+  document.getElementById('screen-identity').style.display = 'none';
+  document.getElementById('screen-sessions').style.display = '';
+  document.getElementById('auth-overlay').style.display = 'flex';
+}
+
+function selectEvaluator(id, type) {
+  myEvaluatorId   = id;
+  myEvaluatorType = type;
+  sessionStorage.setItem('evalpoli_evaluator_id', id);
+  sessionStorage.setItem('evalpoli_evaluator_type', type);
+  showSessionScreen(id, type);
+}
+
+function selectSession(sessionId, evalId, evalType) {
+  mySessionId = sessionId || '';
+  if (sessionId) sessionStorage.setItem('evalpoli_session_id', sessionId);
+  else sessionStorage.removeItem('evalpoli_session_id');
+  showEvaluatorApp();
+}
+
+function enterAsAdmin() {
+  isAdmin = true;
+  sessionStorage.setItem('evalpoli_is_admin', '1');
+  myEvaluatorId = ''; myEvaluatorType = ''; mySessionId = '';
+  sessionStorage.removeItem('evalpoli_evaluator_id');
+  sessionStorage.removeItem('evalpoli_evaluator_type');
+  sessionStorage.removeItem('evalpoli_session_id');
+  showAdminApp();
+}
+
+function showAdminApp() {
+  document.getElementById('auth-overlay').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.body.classList.remove('evaluator-mode');
+  document.getElementById('switch-user-btn').style.display = 'none';
+  document.getElementById('evaluator-display').style.display = 'none';
+  showTab('setup');
+  render();
+}
+
+function showEvaluatorApp() {
+  document.getElementById('auth-overlay').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.body.classList.add('evaluator-mode');
+  const ev = buildEvaluatorList().find(e => e.id === myEvaluatorId);
+  const evalDisp = document.getElementById('evaluator-display');
+  if (ev) { evalDisp.textContent = ev.label; evalDisp.style.display = ''; }
+  document.getElementById('switch-user-btn').style.display = '';
+  showTab('valuta');
+  render();
+}
+
+function switchUser() {
+  myEvaluatorId = ''; myEvaluatorType = ''; mySessionId = ''; isAdmin = false;
+  sessionStorage.removeItem('evalpoli_evaluator_id');
+  sessionStorage.removeItem('evalpoli_evaluator_type');
+  sessionStorage.removeItem('evalpoli_session_id');
+  sessionStorage.removeItem('evalpoli_is_admin');
+  showIdentityScreen();
+}
+
+// ══════════════════════════════════════════════
 // Boot
 // ══════════════════════════════════════════════
 if (token) {
@@ -1428,9 +1564,9 @@ if (token) {
       S = s;
       if (S.exams?.length) activeExamId = S.exams[0].id;
       rebuildBriefColors();
-      document.getElementById('auth-overlay').style.display = 'none';
-      document.getElementById('app').style.display = 'flex';
-      render();
+      if (isAdmin) showAdminApp();
+      else if (myEvaluatorId) showEvaluatorApp();
+      else showIdentityScreen();
     })
     .catch(() => init());
 } else {
